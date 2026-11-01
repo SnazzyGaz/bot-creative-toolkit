@@ -20,7 +20,7 @@ Codex, Cursor agents, or your own scripts. No GPU or display needed.
 
 Every command prints JSON on stdout (paths, sizes, what changed), so an agent can read results instead of guessing.
 
-Contents: [Install](#install) · [Quick start](#quick-start) · [Tested results](#tested-results-with-vs-without-the-toolkit) ·
+Contents: [Install](#install) · [Quick start](#quick-start) · [Examples](#examples) · [Tested results](#tested-results-with-vs-without-the-toolkit) ·
 [Self-test](#self-test) · [Platform support and limits](#platform-support-and-known-limits) · [More](#more)
 
 ## Install
@@ -112,6 +112,55 @@ bct img adjust dull.jpg -o better.jpg --auto-level --saturation 115
 bct scad params examples/phone_stand.scad                     # the adjustable sizes and their ranges
 bct scad render examples/phone_stand.scad -o stand.stl -D width=100 -D angle=70 --png stand.png --sheet sheet.png
 ```
+
+## Examples
+
+Made with the commands below on a CPU-only box with no screen. The sources are in `examples/`.
+
+### Turntable of a Blender model
+
+```bash
+bct video turntable examples/rocket.py -o rocket.mp4 --gif rocket.gif --frames 36 --fps 18 --size 400 --samples 12
+```
+
+36 frames rendered and encoded in about 15 s. GIF 400 × 400, 650 KB; the MP4 is 46 KB.
+
+![Rocket turntable](docs/images/example_rocket_turntable.gif)
+
+### App icon set from a logo
+
+```bash
+inkscape logo.svg --export-type=png --export-filename=logo.png --export-width=2080
+bct img crop logo.png -o emblem.png --box 640x640+72+72 --circle      # just the round mark, corners transparent
+bct img icons emblem.png -o icons --name northwind --ico favicon.ico   # 16..512 px + .ico (16..256)
+bct img montage icons/northwind-{256,128,64,48,32,16}.png -o icons.png --cols 6 --native --labels \
+    --label-color "#555" --background "#f5f0e6"
+```
+
+The wide "Northwind Pottery" logo from the tests above was cropped to its round mark first: the wordmark is
+unreadable at icon sizes. All sizes took about 1 s.
+
+![Icon sizes from 256 to 16 px](docs/images/example_icons.png)
+
+### Parametric phone stand (OpenSCAD)
+
+```bash
+bct scad params examples/phone_stand.scad          # width, depth, angle, rest_length, thickness, phone_depth, ...
+bct scad render examples/phone_stand.scad -o stand.stl --png stand.png --size 640x480 --sheet stand_sheet.png
+bct video turntable stand.stl -o stand.mp4 --gif stand.gif --import-scale 0.001 --frames 30 --fps 15 --size 320 --clay
+```
+
+The STL (76 triangles, 80 × 90 × 90.6 mm) and OpenSCAD's picture took 0.1 s; the Blender sheet about 2 s. Any size
+can be changed with `-D`, for example `-D width=100 -D angle=70`.
+
+| OpenSCAD's picture | `bct look` sheet of the STL |
+|---|---|
+| ![Phone stand in OpenSCAD](docs/images/example_stand_openscad.png) | ![Phone stand contact sheet](docs/images/example_stand_sheet.png) |
+
+![Phone stand turntable](docs/images/example_stand_turntable.gif)
+
+The first version of the stand had the back rest leaning forwards and a wedge on the wrong side. The contact sheet
+showed it straight away; the fix was to draw the side profile as one 2D shape and extrude it.
 
 ## Tested results: with vs without the toolkit
 

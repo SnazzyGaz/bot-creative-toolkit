@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 (2026-11-01)
+
+- Docs only: README "Examples" section with a rocket turntable GIF, a Northwind icon set and the parametric phone
+  stand (OpenSCAD picture, contact sheet and turntable), with the commands that made them.
+
 ## 0.2.0 (2026-11-01)
 
 - `setup.sh` installs FFmpeg, ImageMagick 7 and OpenSCAD (already on PATH, then apt, then a static FFmpeg build, the
