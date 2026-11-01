@@ -206,6 +206,72 @@ can be changed with `-D`, for example `-D width=100 -D angle=70`.
 The first version of the stand had the back rest leaning forwards and a wedge on the wrong side. The contact sheet
 showed it straight away; the fix was to draw the side profile as one 2D shape and extrude it.
 
+### Seven G'MIC styles on The Great Wave
+
+```bash
+bct fx strip wave.png -o fx_strip.png --styles painting,watercolor,cartoon,sketch,halftone,glow,comic --tile 360 --cols 4
+```
+
+![G'MIC styles side by side](docs/images/example_fx_strip.jpg)
+
+One command, about 2 s for all seven. G'MIC's own painting filter turned the sky bright green in this version, which
+the strip showed at once; the `painting` style now uses the same recipe with the bug fixed.
+
+### A display font from hand-drawn letters
+
+`examples/font/draw_letters.py` draws eight wobbly brush-stroke capitals as PNGs; potrace turns each into an SVG and
+FontForge builds the font (`examples/font/BotScrawl.ttf`, 5 KB).
+
+```bash
+python3 examples/font/draw_letters.py                                    # png/B.png, png/O.png ... png/exclam.png
+for f in png/*.png; do bct vector trace "$f" -o "svg/$(basename "$f" .png).svg" --smooth 1.1 --tolerance 0.4; done
+bct font build svg -o BotScrawl.ttf --name "Bot Scrawl" --specimen specimen.png --text "ROBOTS BOTS!"
+```
+
+![Font specimen](docs/images/example_font_specimen.png)
+
+The first build had a huge gap above each line: FontForge treats line-height settings as offsets unless told
+otherwise. `bct font` now sets real values.
+
+### A layered poster, opened and edited in Krita
+
+A `bct layers` stack (gradient, the watercolour wave, a multiply-blended panel, a title in the font above) is saved as
+OpenRaster, turned into a `.kra`, then edited by a Python script running inside Krita
+([`examples/edit_poster.py`](examples/edit_poster.py)): it blurs the picture layer and adds a glowing copy of the
+title in a new group.
+
+```bash
+bct layers render poster.json -o poster_flat.png --ora poster.ora
+bct paint export poster.ora -o poster.kra                  # 5 layers, names, opacity and blend modes kept
+bct paint script examples/edit_poster.py $PWD/poster.kra $PWD/poster_edit.kra $PWD/poster_edit.png
+bct paint export poster_edit.kra -o poster_edit_cli.png    # not blank: checked in the JSON
+```
+
+| Before (`bct layers`) and after (Krita script) |
+|---|
+| ![Poster before and after the Krita script](docs/images/example_krita_poster.jpg) |
+
+### A three-second jingle, seen rather than heard
+
+A rising whoosh (a sine sweep mixed with faded pink noise), then a plucked arpeggio and a chord with reverb.
+The sound is [`examples/jingle.ogg`](examples/jingle.ogg) (27 KB).
+
+```bash
+bct audio tone whoosh.wav --freq 200 --to 2000 --dur 0.35 --vol 0.25
+bct audio noise hiss.wav --color pink --dur 0.35 --vol 0.15 && bct audio fade hiss.wav -o hiss_f.wav --in 0.2 --fade-out 0.15
+bct audio mix whoosh.wav hiss_f.wav -o riser.wav
+bct audio synth melody.wav --bpm 150 --wave pluck --reverb 25 --notes "C5/8 E5/8 G5/8 C6/8 R/16 G5/16 C6/4 E5+G5+C6/2"
+bct audio concat riser.wav melody.wav -o jingle.wav && bct audio norm jingle.wav -o jingle.ogg --db -1
+bct audio wave jingle.ogg -o wave.png && bct audio spectrogram jingle.ogg -o spec.png
+```
+
+![Jingle waveform](docs/images/example_jingle_wave.png)
+![Jingle spectrogram](docs/images/example_jingle_spectrogram.jpg)
+
+The pictures caught two problems in the first take: the final chord was far quieter than the single notes (each
+note was scaled down by the number of notes), and the reverb tail was cut off (padding came after the reverb).
+Both are fixed in `bct audio synth`.
+
 ## Tested results: with vs without the toolkit
 
 To see whether the toolkit actually helps, four tasks were done twice on the same box on 1 Nov 2026: once

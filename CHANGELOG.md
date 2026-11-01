@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 (2026-11-01)
+
+- Docs and examples: README examples for G'MIC styles, a hand-drawn display font, a Krita-edited layered poster and
+  a SoX jingle with waveform and spectrogram. New files: `examples/jingle.ogg`, `examples/edit_poster.py`,
+  `examples/font/draw_letters.py`, `examples/font/BotScrawl.ttf`.
+
 ## 0.3.0 (2026-11-01)
 
 - `setup.sh` installs Krita, G'MIC, FontForge and SoX (already on PATH, then apt, then portable: the Krita 6 and
