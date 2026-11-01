@@ -1,6 +1,7 @@
 # Instructions for AI agents
 
-You are doing visual work (3D, layered images, vectors, video, batch images, CAD parts) on a headless Linux box
+You are doing visual work (3D, layered images, vectors, video, batch images, CAD parts, painting files, artistic
+filters, fonts, sound) on a headless Linux box
 with `bct`. Follow this file.
 It works for any agent that can run shell commands and view images.
 
@@ -9,12 +10,13 @@ It works for any agent that can run shell commands and view images.
 ```bash
 git clone https://github.com/SnazzyGaz/bot-creative-toolkit && cd bot-creative-toolkit
 ./setup.sh          # installs what's missing: Blender, Inkscape, GIMP, potrace, FFmpeg, ImageMagick 7, OpenSCAD,
-                    # Pillow, numpy. Safe to re-run.
+                    # Krita, G'MIC, FontForge, SoX, Pillow, numpy. Safe to re-run.
 ./selftest.sh       # must end with "selftest: PASS"
 ```
 `setup.sh` tries apt first (with sudo), then the official portable builds into `~/.local/opt/bct`, linked into
 `~/.local/bin`. If `bct` is not found, add `~/.local/bin` to `PATH`. `bct doctor` shows what's installed.
-`./setup.sh --no-gimp` skips GIMP (the biggest download); `--no-extra` skips FFmpeg, ImageMagick and OpenSCAD. Blender already in `~/blender` or on `PATH` is used as is.
+`./setup.sh --no-gimp` skips GIMP (the biggest download); `--no-extra` skips FFmpeg, ImageMagick and OpenSCAD;
+`--no-art` skips Krita, G'MIC, FontForge and SoX; `--no-krita` skips only Krita (a 390 MB download, 1.1 GB unpacked). Blender already in `~/blender` or on `PATH` is used as is.
 
 ## 1. Why you need it
 
@@ -160,7 +162,87 @@ ImageMagick tips if you call it yourself:
 - Avoid `minkowski()` on detailed shapes: it's very slow. Make holes 0.01 mm longer than the wall
   (`translate([0,0,-0.01])`) so faces don't coincide.
 
-## 9. Don't
+## 9. Artistic filters (G'MIC): `bct fx`
+
+1. `bct fx strip photo.png -o choices.png --styles painting,watercolor,cartoon,sketch,halftone,glow` puts the
+   picture in each style side by side with labels. Look at that one image and pick.
+2. `bct fx apply photo.png -o out.png --style cartoon`. The JSON has `change` (mean pixel difference from the input,
+   0–255): under about 3 means the filter did almost nothing.
+3. `bct fx list` shows the built-in styles. `bct fx list --search glass` and `bct fx gui "Stained Glass" in.png -o
+   out.png` reach any of G'MIC's ~430 GUI filters by its menu name, with the GUI's defaults;
+   `bct fx gui-info "Stained Glass"` lists the settings, and `--set 1=60` changes setting 1.
+4. Anything else: `bct fx run in.png -o out.png -- blur 3 sharpen 100` passes a raw G'MIC pipeline.
+
+- Filters depend on scale: a style tuned for 1000 px looks heavier on 300 px. Filter at the size you'll use.
+  `--width 800` shrinks first, which is also faster.
+- If you call `gmic` yourself: a command reads the next word as its settings, so `gmic in.png cartoon -o out.png`
+  fails (`-o` is taken as cartoon's setting). Write `cartoon , -o out.png` (an empty setting list means defaults)
+  or give the settings. Commas in file names break `-o`; `bct fx` works around that for output names only.
+- The GUI filters are the `fx_*` commands and need *all* their settings in order; `bct fx gui` fills them in from
+  the filter definitions file that `setup.sh` downloads. Choice settings are numbers (0 = first option).
+- In G'MIC 4.0.7, `fx_painting` turns pale areas green (a wrong channel number inside it); the `painting` style is
+  the same recipe with that fixed. There is no watercolour filter in G'MIC; the `watercolor` style is built from
+  Kuwahara smoothing, darkened edges and a paper texture.
+
+## 10. Painting files (Krita): `bct paint`
+
+1. `bct paint export art.ora -o art.kra` turns an OpenRaster file (e.g. from `bct layers render --ora`) into a
+   Krita file with the same layers, names, opacity and blend modes. `export art.kra -o art.png` flattens; `.psd`,
+   `.jpg`, `.tif`, `.webp` work too. The JSON says whether the PNG is blank.
+2. `bct paint info art.kra` lists the layers (top first) without starting Krita.
+3. `bct paint stack base.png overlay.png --names base,overlay --opacity 1,0.6 -o art.kra` builds a layered file from
+   PNGs.
+4. `bct paint script edit.py IN.kra OUT.kra OUT.png` runs your Python inside Krita. The file defines `main(args)`
+   and can return a dict, which comes back as `result` with any `print()` output as `printed`. Useful calls:
+   `app = Krita.instance()`, `doc = app.openDocument(p)`, `doc.setBatchmode(True)`, `doc.nodeByName("x")`,
+   `doc.createNode(name, "paintlayer")`, `node.setPixelData(bytes, x, y, w, h)` (bytes are **BGRA**),
+   `app.filter("gaussian blur")` + `.configuration()` / `.apply(node, x, y, w, h)`, `doc.refreshProjection()`,
+   `doc.waitForDone()`, `doc.saveAs(p)`, `doc.exportImage(p, InfoObject())`.
+
+- Krita needs an X server even with no window; `bct paint` runs it under `xvfb-run` when `$DISPLAY` is unset.
+- The first run after install takes about 30 s (Krita builds its resource database). Later runs take about 2 s.
+- Batch mode can't paint brush strokes or use the GUI's tools; scripts can change pixels, layers, filters and
+  properties only. Krita's `--export` has no options (quality, size): convert, then use `bct img` for that.
+- A `.kra` is a zip: `maindoc.xml` has the layer tree, `mergedimage.png` the flattened picture. With no Krita
+  installed, `.kra`/`.ora` → `.png` still works from that copy.
+- Ignore "Fontconfig error" lines in Krita's log; they're harmless.
+
+## 11. Fonts (FontForge): `bct font`
+
+1. Draw each letter black on white (big, e.g. 400 px), trace it with `bct vector trace A.png -o glyphs/A.svg`, and
+   name the files by character: `A.svg`, `a.svg`, `7.svg`, `uni00E9.svg`, or glyph names like `exclam.svg`,
+   `period.svg`, `question.svg`.
+2. `bct font build glyphs -o MyFont.ttf --name "My Font" --specimen spec.png --text "HELLO"` builds the font and a
+   specimen picture. Look at the specimen. The JSON lists the characters in the font, skipped files, and
+   characters of `--text` that are missing.
+3. `bct font convert MyFont.ttf -o MyFont.woff2` (also `.otf`, `.woff`, `.sfd`); `bct font info` lists what's in
+   a font.
+
+- By default all glyphs are scaled by the same amount so the tallest letter (not g j p q y) is `--cap-height`
+  (0.7 em) and sits on the baseline, with `--bearing` units (60) of space each side. Draw letters at a consistent
+  size, or use `--no-fit` to keep the SVGs' own size and position.
+- There is no kerning: spacing is the same for every pair. Widen `--bearing` for chunky letters.
+- If you script FontForge yourself: run `fontforge -lang=py -script /absolute/path.py`; the portable build changes
+  folder before running, so relative paths break. Vertical metrics like `hhea_ascent` are offsets unless you set
+  `hhea_ascent_add = False` first (otherwise lines come out far too tall).
+
+## 12. Sound (SoX): `bct audio`
+
+1. Make: `bct audio tone beep.wav --freq 880 --dur 0.2`, `bct audio noise hiss.wav --color pink`,
+   `bct audio synth tune.ogg --notes "C5/8 E5/8 G5/4 C5+E5+G5/2" --bpm 140 --wave pluck --reverb 25`.
+2. Edit: `trim`, `fade`, `norm`, `concat --gap`, `mix --vol`, and `fx` (`--reverb --echo --pitch --tempo --speed
+   --lowpass --highpass --bass --treble --gain`, or raw SoX effects after `--`).
+3. Check: you can't hear it, so look at it. `bct audio wave x.ogg -o wave.png` (loudness over time, clipping marked
+   red) and `bct audio spectrogram x.ogg -o spec.png` (pitch over time: each note is a stack of horizontal lines).
+   `bct audio probe x.ogg` gives length, peak and RMS in dBFS, `silent` and `clipped`.
+
+- Every command reports the result's length and peak. Peak at 0 dBFS or `clipped: true` means distortion:
+  `norm --db -1`. RMS around -14 to -20 dBFS is a normal loudness for short effects.
+- `--pitch` is in cents (1200 = an octave) and keeps the length; `--speed` changes both, like a tape.
+- Use `.ogg` or `.flac` for files you keep (small), `.wav` for working files. `-r 32000` is plenty for effects.
+- If you call `sox` yourself: options before a file apply to that file; effects go after the output file.
+
+## 13. Don't
 
 - Don't render big or with many samples first. Start with the defaults; go bigger only for the final picture.
 - Don't open every tile or every file. One contact sheet per round is usually enough.
@@ -168,5 +250,7 @@ ImageMagick tips if you call it yourself:
 - Don't trust that an edit worked: render or export, then look.
 - Don't print or paste huge SVG path data into chat. Use `bct vector list`.
 - Don't open a video or 48 turntable frames to check them. Use `bct video sheet`.
+- Don't try filters one at a time. Use `bct fx strip` and pick from one picture.
+- Don't ship a sound you haven't looked at: check the waveform for clipping and the spectrogram for the notes.
 
 Exit codes: `0` ok, `1` a check or conversion failed, `2` bad input or a missing program (the message says which).

@@ -6,6 +6,8 @@
 #   ./setup.sh --check     only report what's installed
 #   ./setup.sh --no-gimp   skip GIMP (it's the biggest download)
 #   ./setup.sh --no-extra  skip FFmpeg, ImageMagick and OpenSCAD
+#   ./setup.sh --no-art    skip Krita, G'MIC, FontForge and SoX
+#   ./setup.sh --no-krita  skip only Krita (390 MB download, 1.1 GB unpacked)
 #   ./setup.sh --portable  skip apt and use the official portable builds
 #
 # Order for each program: already on PATH / known folder -> apt (with sudo) -> official portable build.
@@ -24,10 +26,16 @@ MAGICK_PINNED="https://github.com/ImageMagick/ImageMagick/releases/download/7.1.
 OPENSCAD_URL="${BCT_OPENSCAD_URL:-}"    # empty: newest nightly AppImage (has the fast Manifold backend), then 2021.01
 OPENSCAD_STABLE="https://files.openscad.org/OpenSCAD-2021.01-x86_64.AppImage"
 
-CHECK=0; NOGIMP=0; PORTABLE=0; NOEXTRA=0
+KRITA_URL="${BCT_KRITA_URL:-}"          # empty: newest stable AppImage on download.kde.org, then a pinned one
+KRITA_PINNED="https://download.kde.org/stable/krita/6.0.4.1/krita-6.0.4.1-x86_64.AppImage"
+FONTFORGE_URL="${BCT_FONTFORGE_URL:-}"  # empty: newest AppImage from GitHub releases, then a pinned one
+FONTFORGE_PINNED="https://github.com/fontforge/fontforge/releases/download/20251009/FontForge-2025-10-09-Linux-x86_64.AppImage"
+MICROMAMBA_URL="${BCT_MICROMAMBA_URL:-https://micro.mamba.pm/api/micromamba/linux-64/latest}"
+
+CHECK=0; NOGIMP=0; PORTABLE=0; NOEXTRA=0; NOART=0; NOKRITA=0
 for a in "$@"; do case "$a" in
-  --check) CHECK=1;; --no-gimp) NOGIMP=1;; --no-extra) NOEXTRA=1;; --portable) PORTABLE=1;;
-  -h|--help) sed -n 2,12p "$0"; exit 0;;
+  --check) CHECK=1;; --no-gimp) NOGIMP=1;; --no-extra) NOEXTRA=1;; --no-art) NOART=1;; --no-krita) NOKRITA=1;; --portable) PORTABLE=1;;
+  -h|--help) sed -n 2,14p "$0"; exit 0;;
   *) echo "unknown option: $a"; exit 2;; esac; done
 
 mkdir -p "$BIN" "$OPT"
@@ -188,6 +196,122 @@ else
   { [ -n "$url" ] && appimage_install openscad "$url"; } || appimage_install openscad "$OPENSCAD_STABLE" || apt_install openscad || true
   [ -x "$OPT/openscad/AppRun" ] && ln -sf "$OPT/openscad/AppRun" "$BIN/openscad"
   have openscad && say "openscad: ok" || { say "openscad: install failed"; FAILED+=(openscad); }
+fi
+fi
+
+# ---------- Krita, G'MIC, FontForge, SoX ----------
+if [ "$NOART" = 1 ]; then say "krita/gmic/fontforge/sox: skipped (--no-art)"
+else
+# Krita (and Xvfb, because Krita needs an X display even for --export)
+if [ "$NOKRITA" = 1 ]; then say "krita: skipped (--no-krita)"
+else
+if have krita; then say "krita: found $(command -v krita)"
+elif [ "$CHECK" = 1 ]; then say "krita: MISSING"; FAILED+=(krita)
+else
+  url="$KRITA_URL"
+  if [ -z "$url" ]; then   # newest version folder that has an x86_64 AppImage
+    for v in $(curl -fsSL --retry 3 https://download.kde.org/stable/krita/ 2>/dev/null | grep -oE 'href="[0-9][0-9.]*/"' \
+               | grep -oE '[0-9][0-9.]*[0-9]' | sort -uV | tail -4 | sort -rV); do
+      n="$(curl -fsSL "https://download.kde.org/stable/krita/$v/" 2>/dev/null | grep -oE 'krita-[0-9.]+-x86_64\.AppImage' | head -1)"
+      [ -n "$n" ] && { url="https://download.kde.org/stable/krita/$v/$n"; break; }
+    done
+  fi
+  # the AppImage is preferred: it is current and brings kritarunner + its own Python for scripts
+  { [ -n "$url" ] && appimage_install krita "$url"; } || appimage_install krita "$KRITA_PINNED" || apt_install krita || true
+  if [ -x "$OPT/krita/AppRun" ]; then
+    ln -sf "$OPT/krita/AppRun" "$BIN/krita"
+    py="$(ls -d "$OPT"/krita/usr/lib/python3.* 2>/dev/null | head -1)"
+    cat > "$BIN/kritarunner" <<KR
+#!/usr/bin/env bash
+# kritarunner from the Krita AppImage: runs one Python script inside Krita and exits
+export LD_LIBRARY_PATH="$OPT/krita/usr/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+export PYTHONHOME="$OPT/krita/usr"
+exec "$OPT/krita/usr/bin/kritarunner" "\$@"
+KR
+    chmod +x "$BIN/kritarunner"
+  fi
+  have krita && say "krita: ok" || { say "krita: install failed"; FAILED+=(krita); }
+fi
+if have xvfb-run || [ -n "${DISPLAY:-}" ]; then say "xvfb: $(command -v xvfb-run || echo "using DISPLAY=$DISPLAY")"
+elif [ "$CHECK" = 1 ]; then say "xvfb: MISSING (Krita needs xvfb-run or a DISPLAY)"; FAILED+=(xvfb)
+else apt_install xvfb xauth || true
+  have xvfb-run && say "xvfb: ok" || { say "xvfb: could not install; Krita commands will need a DISPLAY"; FAILED+=(xvfb); }
+fi
+fi
+
+# G'MIC (command-line filters)
+GMIC_VER=""
+if have gmic; then say "gmic: found $(command -v gmic)"
+elif [ "$CHECK" = 1 ]; then say "gmic: MISSING"; FAILED+=(gmic)
+else
+  apt_install gmic || true
+  if ! have gmic && [ -r /etc/os-release ] && have dpkg-deb; then
+    # official .deb from gmic.eu for this Debian/Ubuntu release, unpacked (no root needed); missing libs from the archive
+    . /etc/os-release
+    page="$(curl -fsSL --retry 3 https://gmic.eu/download.html 2>/dev/null)"
+    code="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+    deb="$(printf '%s' "$page" | grep -oE "linux/gmic_[0-9.]+_[a-z0-9-]+_${code}_amd64\.deb" | head -1)"
+    if [ -n "$code" ] && [ -n "$deb" ]; then
+      rm -rf "$OPT/gmic" && mkdir -p "$OPT/gmic/root"
+      fetch "https://gmic.eu/get_file.php?file=$deb" "$OPT/gmic/gmic.deb" \
+        && dpkg-deb -x "$OPT/gmic/gmic.deb" "$OPT/gmic/root" && rm -f "$OPT/gmic/gmic.deb" \
+        && python3 "$HERE/tools/deb_fill.py" "$OPT/gmic/root" "$OPT/gmic/root/usr/bin/gmic"
+      cat > "$BIN/gmic" <<GM
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="$OPT/gmic/root/usr/lib:$OPT/gmic/root/usr/lib/x86_64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "$OPT/gmic/root/usr/bin/gmic" "\$@"
+GM
+      chmod +x "$BIN/gmic"
+    else say "gmic: no gmic.eu build for this system; install G'MIC with your package manager"; fi
+  fi
+  gmic -v -1 version >/dev/null 2>&1 && say "gmic: ok" || { say "gmic: install failed"; FAILED+=(gmic); }
+fi
+# the G'MIC filter library source, so `bct fx` can list every filter and use the GUI default settings
+if have gmic; then
+  GMIC_VER="$(gmic -v -1 version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  LIB="$OPT/gmic-stdlib/gmic_stdlib_${GMIC_VER}.gmic"
+  if [ -s "$LIB" ]; then say "gmic filter list: $LIB"
+  elif [ "$CHECK" = 1 ]; then say "gmic filter list: missing (bct fx gui/list --all need it; re-run setup.sh)"
+  else mkdir -p "$OPT/gmic-stdlib"
+    fetch "https://raw.githubusercontent.com/GreycLab/gmic/v.${GMIC_VER}/src/gmic_stdlib.gmic" "$LIB" \
+      && say "gmic filter list: ok" || say "gmic filter list: download failed (bct fx still works with its own styles)"
+  fi
+fi
+
+# FontForge (with its Python module)
+ff_ok() { have fontforge && fontforge -lang=py -c "import fontforge" >/dev/null 2>&1; }
+if ff_ok; then say "fontforge: found $(command -v fontforge)"
+elif [ "$CHECK" = 1 ]; then say "fontforge: MISSING"; FAILED+=(fontforge)
+else
+  apt_install fontforge python3-fontforge || true
+  if ! ff_ok; then
+    url="$FONTFORGE_URL"
+    [ -n "$url" ] || url="$(curl -fsSL --retry 3 https://api.github.com/repos/fontforge/fontforge/releases/latest 2>/dev/null \
+      | grep -oE 'https://[^"]+x86_64\.AppImage' | head -1)"
+    appimage_install fontforge "${url:-$FONTFORGE_PINNED}" || appimage_install fontforge "$FONTFORGE_PINNED"
+    # a wrapper, not a symlink: this AppRun finds its files relative to $0. It also changes the working folder,
+    # so always give fontforge absolute paths.
+    [ -x "$OPT/fontforge/AppRun" ] && rm -f "$BIN/fontforge" \
+      && printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$OPT/fontforge/AppRun" > "$BIN/fontforge" && chmod +x "$BIN/fontforge"
+  fi
+  ff_ok && say "fontforge: ok" || { say "fontforge: install failed"; FAILED+=(fontforge); }
+fi
+
+# SoX (audio)
+if have sox && have soxi; then say "sox: found $(command -v sox)"
+elif [ "$CHECK" = 1 ]; then say "sox: MISSING"; FAILED+=(sox)
+else
+  apt_install sox libsox-fmt-all || true
+  if ! have sox; then
+    # there is no official static SoX; conda-forge's build (via the single-file micromamba) works on any x86_64 Linux
+    mm="$OPT/micromamba/bin/micromamba"
+    [ -x "$mm" ] || { fetch "$MICROMAMBA_URL" "$OPT/micromamba.tar.bz2" \
+      && mkdir -p "$OPT/micromamba" && python3 -c "import tarfile,sys; tarfile.open(sys.argv[1]).extract('bin/micromamba', sys.argv[2], filter='data')" \
+         "$OPT/micromamba.tar.bz2" "$OPT/micromamba" && rm -f "$OPT/micromamba.tar.bz2"; }
+    [ -x "$mm" ] && rm -rf "$OPT/sox" && MAMBA_ROOT_PREFIX="$OPT/micromamba/root" "$mm" create -y -q -p "$OPT/sox" -c conda-forge sox \
+      >/tmp/bct-sox.log 2>&1 && ln -sf "$OPT/sox/bin/sox" "$BIN/sox" && ln -sf "$OPT/sox/bin/soxi" "$BIN/soxi"
+  fi
+  have sox && have soxi && say "sox: ok" || { say "sox: install failed (log: /tmp/bct-sox.log)"; FAILED+=(sox); }
 fi
 fi
 

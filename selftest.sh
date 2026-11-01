@@ -236,6 +236,127 @@ check "scad: Blender sheet of the STL (mm -> m)" sh -c "'$BCT' scad render '$HER
 check "scad: sheet sees an 8 cm wide object" py "
 import json; s=json.load(open('$T/s2.json'))['sheet']; assert abs(s['size_m'][0]-0.08)<0.001, s"
 
+# ---------- 8. fx (G'MIC) ----------
+if command -v gmic >/dev/null; then
+  py "from PIL import Image; Image.open('$HERE/docs/images/compare_poster.png').convert('RGB').resize((240,160)).save('$T/fx_in.png')"
+  for s in painting watercolor cartoon sketch halftone glow; do
+    check "fx: $s style runs" sh -c "'$BCT' fx apply '$T/fx_in.png' -o '$T/fx_$s.png' --style $s > '$T/fx_$s.json'"
+  done
+  check "fx: every style changed the pixels and kept the size" py "
+import json
+from PIL import Image
+src=Image.open('$T/fx_in.png')
+for s in 'painting watercolor cartoon sketch halftone glow'.split():
+    r=json.load(open('$T/fx_%s.json'%s)); assert r['change']>5, (s, r['change'])
+    assert Image.open('$T/fx_%s.png'%s).size==src.size, s"
+  check "fx: sketch is close to grey, cartoon keeps colour" py "
+from PIL import Image, ImageStat
+sat=lambda f: ImageStat.Stat(Image.open(f).convert('HSV')).mean[1]
+assert sat('$T/fx_cartoon.png')>2*sat('$T/fx_sketch.png') or sat('$T/fx_sketch.png')<40, (sat('$T/fx_cartoon.png'),sat('$T/fx_sketch.png'))"
+  check "fx: strip of 3 styles + original" sh -c "'$BCT' fx strip '$T/fx_in.png' -o '$T/fx_strip.png' --styles cartoon,glow,halftone --tile 120 > '$T/fx_strip.json'"
+  check "fx: strip is 4 tiles wide" py "
+from PIL import Image; w,h=Image.open('$T/fx_strip.png').size; assert w==4*120+5*6, (w,h)"
+  check "fx: raw pipeline passthrough (blur) changes pixels" sh -c "'$BCT' fx run '$T/fx_in.png' -o '$T/fx_blur.png' -- blur 4 | python3 -c 'import json,sys; assert json.load(sys.stdin)[\"change\"]>1'"
+  check "fx: unknown style is rejected" sh -c "! '$BCT' fx apply '$T/fx_in.png' -o '$T/x.png' --style nope >/dev/null 2>&1"
+  if "$BCT" fx list --all >/dev/null 2>&1; then
+    check "fx: GUI filter by name with its defaults" sh -c "'$BCT' fx gui 'Old Photograph' '$T/fx_in.png' -o '$T/fx_gui.png' | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r[\"change\"]>5 and r[\"pipeline\"].startswith(\"fx_old_photo\"), r'"
+    check "fx: GUI filter list has hundreds of filters" sh -c "'$BCT' fx list --all | python3 -c 'import json,sys; assert json.load(sys.stdin)[\"gui_filters\"]>200'"
+  else skip "fx gui filters" "G'MIC filter list not downloaded"; fi
+else skip "fx (G'MIC)" "gmic not installed"; fi
+
+# ---------- 9. font (FontForge) ----------
+if command -v fontforge >/dev/null; then
+  mkdir -p "$T/glyphs"
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect x="40" y="0" width="20" height="100"/></svg>' > "$T/glyphs/I.svg"
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path d="M10 0 H30 V80 H90 V100 H10 Z"/></svg>' > "$T/glyphs/L.svg"
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill-rule="evenodd" d="M50 0 A50 50 0 1 0 50.01 0 Z M50 20 A30 30 0 1 1 49.99 20 Z"/></svg>' > "$T/glyphs/O.svg"
+  printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect x="40" y="80" width="20" height="20"/></svg>' > "$T/glyphs/period.svg"
+  check "font: build a TTF from 4 SVG glyphs + specimen" sh -c "'$BCT' font build '$T/glyphs' -o '$T/f.ttf' --name 'Bct Test' --specimen '$T/spec.png' --text 'LOIL.' > '$T/font.json'"
+  check "font: has exactly I L O . and space, nothing missing" py "
+import json; r=json.load(open('$T/font.json'))
+assert r['chars']=='.ILO' and r['missing']=='' and not r['blank'] and not r['skipped'], r"
+  check "font: glyph shapes are right (I narrow, O wide with a hole, . sits on the baseline)" py "
+from PIL import Image, ImageDraw, ImageFont
+f=ImageFont.truetype('$T/f.ttf', 200)
+def ink(c):
+    im=Image.new('L',(400,300),0); ImageDraw.Draw(im).text((50,20),c,font=f,fill=255); return im
+wI=ink('I').getbbox(); wO=ink('O').getbbox(); wp=ink('.').getbbox()
+assert (wO[2]-wO[0]) > 3*(wI[2]-wI[0]), (wI,wO)
+o=ink('O'); cx,cy=(wO[0]+wO[2])//2,(wO[1]+wO[3])//2; assert o.getpixel((cx,cy))==0, 'O has no hole'
+assert abs(wp[3]-wI[3])<=2, ('period not on baseline', wp, wI)"
+  check "font: convert to WOFF2 and OTF, info reads them back" sh -c "'$BCT' font convert '$T/f.ttf' -o '$T/f.woff2' >/dev/null &&
+      '$BCT' font convert '$T/f.ttf' -o '$T/f.otf' >/dev/null &&
+      '$BCT' font info '$T/f.woff2' | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r[\"family\"]==\"Bct Test\" and set(\"ILO.\")<=set(r[\"chars\"]), r'"
+  check "font: specimen of the WOFF2 renders and reports a missing letter" sh -c "'$BCT' font specimen '$T/f.woff2' -o '$T/spec2.png' --text 'LOX' | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r[\"missing\"]==\"X\" and not r[\"blank\"], r'"
+else skip "font (FontForge)" "fontforge not installed"; fi
+
+# ---------- 10. audio (SoX) ----------
+if command -v sox >/dev/null; then
+  check "audio: 440 Hz tone, 0.5 s" sh -c "'$BCT' audio tone '$T/a.wav' --freq 440 --dur 0.5 --vol 0.5 > '$T/a.json'"
+  check "audio: tone length, peak and pitch are right" py "
+import json, subprocess, numpy as np
+r=json.load(open('$T/a.json')); assert abs(r['seconds']-0.5)<0.01 and abs(r['peak']-0.5)<0.02, r
+raw=subprocess.run(['sox','$T/a.wav','-t','raw','-e','floating-point','-b','32','-c','1','-'],capture_output=True).stdout
+x=np.frombuffer(raw,np.float32); f=np.fft.rfftfreq(len(x),1/r['rate'])[np.argmax(abs(np.fft.rfft(x)))]
+assert abs(f-440)<3, f"
+  check "audio: synth tune is 2.0 s at 120 bpm (quarter, rest, half)" sh -c "'$BCT' audio synth '$T/s.wav' --notes 'A4/4 R/4 C5+E5/2' --bpm 120 | python3 -c 'import json,sys; r=json.load(sys.stdin); assert abs(r[\"seconds\"]-2.0)<0.02 and not r[\"clipped\"] and abs(r[\"peak_db\"]+3.1)<0.3, r'"
+  check "audio: the rest in the tune is silent" sh -c "'$BCT' audio trim '$T/s.wav' -o '$T/rest.wav' --start 0.55 --end 0.95 | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r[\"silent\"] and abs(r[\"seconds\"]-0.4)<0.01, r'"
+  check "audio: noise, mix, concat with gap, fade, norm" sh -c "'$BCT' audio noise '$T/n.wav' --dur 0.5 >/dev/null &&
+      '$BCT' audio mix '$T/a.wav' '$T/n.wav' -o '$T/m.wav' --vol 1,0.5 >/dev/null &&
+      '$BCT' audio concat '$T/a.wav' '$T/m.wav' -o '$T/c.wav' --gap 0.25 | python3 -c 'import json,sys; assert abs(json.load(sys.stdin)[\"seconds\"]-1.25)<0.01' &&
+      '$BCT' audio fade '$T/c.wav' -o '$T/cf.wav' --in 0.1 --fade-out 0.3 >/dev/null &&
+      '$BCT' audio norm '$T/cf.wav' -o '$T/cn.wav' --db -1 | python3 -c 'import json,sys; assert abs(json.load(sys.stdin)[\"peak_db\"]+1)<0.05'"
+  check "audio: fade really starts at silence" py "
+import subprocess, numpy as np
+raw=subprocess.run(['sox','$T/cf.wav','-t','raw','-e','floating-point','-b','32','-c','1','-'],capture_output=True).stdout
+x=np.frombuffer(raw,np.float32); assert abs(x[:40]).max()<0.01 and abs(x[8000:10000]).max()>0.3 and abs(x[23000:32000]).max()<0.001"
+  check "audio: effects (pitch up an octave keeps length)" sh -c "'$BCT' audio fx '$T/a.wav' -o '$T/p.wav' --pitch 1200 | python3 -c 'import json,sys; assert abs(json.load(sys.stdin)[\"seconds\"]-0.5)<0.02'"
+  check "audio: waveform and spectrogram PNGs, not blank" sh -c "'$BCT' audio wave '$T/c.wav' -o '$T/w.png' --width 600 --height 200 >/dev/null &&
+      '$BCT' audio spectrogram '$T/c.wav' -o '$T/sp.png' --width 600 --height 300 >/dev/null && python3 -c \"
+from PIL import Image, ImageStat
+w=Image.open('$T/w.png'); assert w.size==(600,200), w.size
+for f in ('$T/w.png','$T/sp.png'): assert ImageStat.Stat(Image.open(f).convert('L')).stddev[0]>10, f\""
+else skip "audio (SoX)" "sox not installed"; fi
+
+# ---------- 11. paint (Krita) ----------
+if command -v krita >/dev/null; then
+  "$BCT" layers new "$T/k.json" --size 160x100 --background "#ffffff" >/dev/null
+  "$BCT" layers add "$T/k.json" '{"id":"red box","type":"rect","x":10,"y":10,"w":60,"h":50,"fill":"#e03020"}' >/dev/null
+  "$BCT" layers add "$T/k.json" '{"id":"blue dot","type":"ellipse","x":90,"y":30,"w":50,"h":50,"fill":"#2050e0","opacity":0.7}' >/dev/null
+  "$BCT" layers render "$T/k.json" -o "$T/k_flat.png" --ora "$T/k.ora" >/dev/null
+  check "paint: ORA -> KRA with Krita (first run can take 30 s)" sh -c "'$BCT' paint export '$T/k.ora' -o '$T/k.kra' > '$T/k1.json'"
+  check "paint: KRA keeps the layer names and opacity" sh -c "'$BCT' paint info '$T/k.kra' | python3 -c '
+import json,sys; r=json.load(sys.stdin); n={l[\"name\"]:l for l in r[\"layers\"]}
+assert \"red box\" in n and \"blue dot\" in n and abs(n[\"blue dot\"][\"opacity\"]-0.7)<0.01 and r[\"size\"]==[160,100], r'"
+  check "paint: KRA -> PNG is not blank and matches the layers render" sh -c "'$BCT' paint export '$T/k.kra' -o '$T/k.png' > '$T/k2.json' && python3 -c \"
+import json
+from PIL import Image, ImageChops, ImageStat
+r=json.load(open('$T/k2.json')); assert not r['blank'], r
+d=ImageStat.Stat(ImageChops.difference(Image.open('$T/k.png').convert('RGB'),Image.open('$T/k_flat.png').convert('RGB'))).mean
+assert max(d)<3, d
+assert Image.open('$T/k.png').convert('RGB').getpixel((30,30))[0]>200\""
+  check "paint: stack PNGs into a layered KRA" sh -c "'$BCT' paint stack '$T/k_flat.png' '$T/fx_in.png' --names base,top --opacity 1,0.5 -o '$T/st.kra' | python3 -c 'import json,sys; assert json.load(sys.stdin)[\"layers\"]==[\"top\",\"base\"]'"
+  if command -v kritarunner >/dev/null; then
+    cat > "$T/ks.py" <<'EOF'
+from krita import Krita, InfoObject
+def main(args):
+    app = Krita.instance(); doc = app.openDocument(args[0]); doc.setBatchmode(True)
+    n = doc.createNode("green", "paintlayer"); doc.rootNode().addChildNode(n, None)
+    n.setPixelData(bytes([0, 200, 0, 255]) * (20 * 20), 0, 0, 20, 20)   # BGRA
+    doc.refreshProjection(); doc.waitForDone(); doc.saveAs(args[1]); doc.exportImage(args[2], InfoObject())
+    print("done")
+    return {"layers": [c.name() for c in doc.rootNode().childNodes()]}
+EOF
+    check "paint: Python script inside Krita adds a layer" sh -c "'$BCT' paint script '$T/ks.py' '$T/k.kra' '$T/k3.kra' '$T/k3.png' > '$T/k3.json'"
+    check "paint: script result, print output and the new pixels" py "
+import json
+from PIL import Image
+r=json.load(open('$T/k3.json')); assert r['ok'] and 'green' in r['result']['layers'] and r['printed'].strip()=='done', r
+assert Image.open('$T/k3.png').convert('RGB').getpixel((5,5))==(0,200,0)"
+  else skip "paint script" "kritarunner not installed"; fi
+else skip "paint (Krita)" "krita not installed"; fi
+check "paint: KRA -> PNG without Krita uses the copy inside the file" sh -c "[ -f '$T/k.kra' ] || exit 0; PATH=/usr/bin:/bin python3 '$HERE/tools/paint.py' export '$T/k.kra' -o '$T/k_nok.png' | grep -q 'no Krita'"
+
 # ---------- summary ----------
 END=$(date +%s)
 echo "----"

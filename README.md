@@ -1,7 +1,7 @@
 # bot-creative-toolkit
 
 Headless visual-work tools for AI agents. One setup script installs Blender, Inkscape, GIMP, potrace, FFmpeg,
-ImageMagick 7 and OpenSCAD on a Linux box with no screen, and a small CLI, `bct`, turns them into things a bot can drive and, more importantly, **check**.
+ImageMagick 7, OpenSCAD, Krita, G'MIC, FontForge and SoX on a Linux box with no screen, and a small CLI, `bct`, turns them into things a bot can drive and, more importantly, **check**.
 
 **Who it's for:** any AI agent or bot that can run shell commands and look at an image: Grok bots, Claude Code,
 Codex, Cursor agents, or your own scripts. No GPU or display needed.
@@ -17,6 +17,10 @@ Codex, Cursor agents, or your own scripts. No GPU or display needed.
 | `bct video` | FFmpeg made simple: frames to MP4/GIF/WebM (good-palette GIFs), 360° turntables of any model, exact-frame trims, a contact sheet of a video's frames, and probe. |
 | `bct img` | ImageMagick 7 batch jobs: resize (fit, fill, pad), crop (box, trim, circle), icon sets 16–512 px plus `.ico`, montage grids, format conversion, colour adjustments. |
 | `bct scad` | OpenSCAD parts to STL with parameters (`-D width=100`), a PNG of the part, a Blender 4-view sheet, and the measured bounding box. |
+| `bct fx` | G'MIC artistic filters by name (painting, watercolor, cartoon, sketch, halftone, glow and 15 more), a labelled side-by-side strip to choose from, any of G'MIC's ~430 GUI filters by menu name, or a raw pipeline. Reports how much each filter changed the picture. |
+| `bct paint` | Krita with no window: `.kra` ↔ `.ora` ↔ `.psd` ↔ `.png` conversion that keeps layers, layer lists, layered `.kra` from PNGs, and your own Python run inside Krita with the result returned as JSON. |
+| `bct font` | FontForge: a font from a folder of SVG letters (e.g. traced drawings), a specimen PNG, TTF/OTF/WOFF/WOFF2 conversion, and what a font contains. |
+| `bct audio` | SoX: tones, noise and note-by-note tunes; trim, fade, normalise, join, mix and effects; waveform and spectrogram pictures so a bot can *see* the sound; length and peak levels in every result. |
 
 Every command prints JSON on stdout (paths, sizes, what changed), so an agent can read results instead of guessing.
 
@@ -32,10 +36,12 @@ git clone https://github.com/SnazzyGaz/bot-creative-toolkit && cd bot-creative-t
 - Needs x86_64 Linux, `bash`, `curl` and Python 3.9+.
 - `setup.sh` is safe to re-run and skips anything already installed. It tries apt (with sudo) first. If that is not
   available it downloads the official portable builds (Blender 4.2.3, Inkscape 1.4.2 and GIMP 3.0.6 AppImages,
-  potrace 1.16, a static FFmpeg, the ImageMagick 7 AppImage and an OpenSCAD development snapshot) into
+  potrace 1.16, a static FFmpeg, the ImageMagick 7 AppImage, an OpenSCAD development snapshot, the Krita 6 and
+  FontForge AppImages, the official G'MIC package for your Debian/Ubuntu release, and SoX from conda-forge) into
   `~/.local/opt/bct` and `~/blender`, linked into `~/.local/bin`.
-- Options: `--check` (report only), `--no-gimp` (skip the biggest download), `--no-extra` (skip FFmpeg, ImageMagick
-  and OpenSCAD), `--portable` (skip apt).
+- Options: `--check` (report only), `--no-gimp` (skip GIMP), `--no-extra` (skip FFmpeg, ImageMagick
+  and OpenSCAD), `--no-art` (skip Krita, G'MIC, FontForge and SoX), `--no-krita` (skip only Krita: a 390 MB download,
+  1.1 GB unpacked), `--portable` (skip apt).
 - If `bct` is not found, add `~/.local/bin` to `PATH`. `bct doctor` shows what is installed.
 
 ## Quick start
@@ -111,6 +117,44 @@ bct img adjust dull.jpg -o better.jpg --auto-level --saturation 115
 ```bash
 bct scad params examples/phone_stand.scad                     # the adjustable sizes and their ranges
 bct scad render examples/phone_stand.scad -o stand.stl -D width=100 -D angle=70 --png stand.png --sheet sheet.png
+```
+
+### Artistic filters
+
+```bash
+bct fx strip photo.png -o choices.png --styles painting,watercolor,cartoon,sketch,halftone,glow   # pick by eye
+bct fx apply photo.png -o out.png --style cartoon
+bct fx list --search glass                                     # G'MIC GUI filters by name
+bct fx gui "Stained Glass" photo.png -o glass.png --set 1=60
+bct fx run photo.png -o out.png -- blur 3 sharpen 100            # raw G'MIC
+```
+
+### Painting files (Krita)
+
+```bash
+bct layers render poster.json -o flat.png --ora poster.ora
+bct paint export poster.ora -o poster.kra                      # layered Krita file
+bct paint info poster.kra                                      # layer names, opacity, offsets
+bct paint export poster.kra -o poster.png
+bct paint script edit.py poster.kra out.kra out.png            # your Python inside Krita, result as JSON
+```
+
+### Fonts
+
+```bash
+bct vector trace letters/A.png -o glyphs/A.svg                 # one SVG per letter: A.svg, b.svg, exclam.svg ...
+bct font build glyphs -o MyFont.ttf --name "My Font" --specimen spec.png --text "HELLO"
+bct font convert MyFont.ttf -o MyFont.woff2
+```
+
+### Sound
+
+```bash
+bct audio synth tune.ogg --notes "C5/8 E5/8 G5/4 C5+E5+G5/2" --bpm 140 --wave pluck --reverb 25
+bct audio tone beep.wav --freq 880 --dur 0.2
+bct audio concat intro.wav tune.ogg -o all.ogg --gap 0.1
+bct audio fx all.ogg -o deep.ogg --pitch -300 --echo 0.3
+bct audio wave all.ogg -o wave.png && bct audio spectrogram all.ogg -o spec.png   # look at it
 ```
 
 ## Examples
@@ -263,8 +307,8 @@ gaps. 0.1.1 uses the lightest colour as the background and stacks the rest light
 
 ## Self-test
 
-`./selftest.sh` runs 55 end-to-end checks and exits non-zero if any fail. The last run took about 26 s on a CPU-only
-box, not counting first-time downloads.
+`./selftest.sh` runs 89 end-to-end checks and exits non-zero if any fail. The last run took about 38 s on a CPU-only
+box, not counting first-time downloads (and Krita's 30 s first start).
 
 - **setup (1):** every program is installed (`setup.sh --check`).
 - **look (6):** a `.py` scene becomes a 2×2 contact sheet that is not blank; a `.blend` input works with the
@@ -296,6 +340,18 @@ box, not counting first-time downloads.
 - **scad (8):** parameters are listed; the phone stand with `-D width=100 -D depth=110` gives a non-empty STL whose
   re-measured box is 100 × 110 mm and matches OpenSCAD's own; the PNG is the right size and not blank; string
   parameters and `echo()` come through; a 2D-only model is refused; the Blender sheet of the STL measures 8 cm.
+- **fx (14):** six styles each change the pixels and keep the size; sketch is grey and cartoon keeps colour; a strip
+  has the right number of tiles; a raw pipeline works; a bad style is refused; a GUI filter runs by name with its
+  defaults; the filter list has hundreds of entries.
+- **font (5):** four SVG glyphs become a TTF with exactly those characters plus space; rendered with Pillow, `I` is
+  narrow, `O` is wide with a hole and `.` sits on the baseline; WOFF2 and OTF conversion read back; the specimen
+  reports a missing letter.
+- **audio (8):** a 440 Hz tone has the right length, peak and pitch (FFT); a tune at 120 bpm is exactly 2.0 s with a
+  silent rest and no clipping; noise, mix, gap-joined concat (1.25 s), fade (starts from silence) and normalise
+  (-1 dBFS) are right; pitch shift keeps the length; waveform and spectrogram PNGs are the right size and not blank.
+- **paint (7):** ORA → KRA keeps layer names and opacity; KRA → PNG matches the `bct layers` render within 3/255;
+  PNGs stack into a KRA; a Python script inside Krita adds a layer and returns its result and print output; KRA →
+  PNG works without Krita.
 
 ## Platform support and known limits
 
@@ -312,6 +368,11 @@ box, not counting first-time downloads.
 - **OpenSCAD** comes from the development snapshots, because the last stable release (2021.01) has no fast Manifold
   backend. If the snapshot server is down, setup falls back to 2021.01, which works but renders much more slowly.
 - **Turntables** render every frame in Cycles on the CPU: 36 frames at 400 px took about 15 s for the rocket.
+- **Krita** is big (1.1 GB unpacked), needs an X server (setup installs Xvfb; `bct paint` uses it automatically),
+  and takes about 30 s the first time. Scripts can't paint brush strokes.
+- **G'MIC's portable install** uses the official `.deb` for your release, so it only works on Debian and Ubuntu
+  (or wherever `gmic` is already on PATH or in the package manager).
+- **Fonts** have no kerning and no hinting unless you ask (`--hint`). Good for display text, not for body text.
 - **Text** in layers and SVGs uses whatever fonts the box has (DejaVu in the tests). Use `--text-to-path` before
   handing an SVG to someone else.
 

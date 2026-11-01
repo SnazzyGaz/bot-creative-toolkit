@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bct: one command for the toolkit.  bct <look|layers|vector|gimp|video|img|scad|doctor> ...   (bct help)
+# bct: one command for the toolkit.  bct <look|layers|vector|gimp|video|img|scad|paint|fx|font|audio|doctor> ...   (bct help)
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
 cmd="${1:-help}"; shift 2>/dev/null
@@ -11,6 +11,10 @@ case "$cmd" in
   video)  exec python3 "$HERE/tools/video.py" "$@";;
   img)    exec python3 "$HERE/tools/img.py" "$@";;
   scad)   exec python3 "$HERE/tools/scad.py" "$@";;
+  paint)  exec python3 "$HERE/tools/paint.py" "$@";;
+  fx)     exec python3 "$HERE/tools/fx.py" "$@";;
+  font)   exec python3 "$HERE/tools/font.py" "$@";;
+  audio)  exec python3 "$HERE/tools/audio.py" "$@";;
   doctor) exec "$HERE/setup.sh" --check;;
   help|-h|--help)
     cat <<EOF
@@ -21,6 +25,10 @@ bct gimp   convert IN OUT | script FILE.py | eval "python code"   run GIMP headl
 bct video  encode|turntable|trim|sheet|probe ...   frames->MP4/GIF, model turntables, trims, frame sheets (FFmpeg)
 bct img    resize|crop|icons|montage|convert|adjust|info batch raster jobs (ImageMagick 7)
 bct scad   render|png|params MODEL.scad ...          OpenSCAD to STL + previews, -D parameters
+bct paint  export|info|stack|script ...             Krita headless: .kra/.ora/.psd/.png conversion, layered files, Python
+bct fx     apply|strip|gui|list|run ...              G'MIC artistic filters by name (painting, cartoon, sketch ...)
+bct font   build|specimen|convert|info ...           FontForge: font from SVG letters, specimen PNG, TTF/OTF/WOFF2
+bct audio  tone|noise|synth|trim|fade|norm|concat|mix|fx|wave|spectrogram|probe ...   SoX sound, with pictures
 bct doctor                                      show what is installed
 Add --help after any command for its options. Guide: $HERE/AGENTS.md
 EOF

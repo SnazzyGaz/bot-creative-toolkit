@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 (2026-11-01)
+
+- `setup.sh` installs Krita, G'MIC, FontForge and SoX (already on PATH, then apt, then portable: the Krita 6 and
+  FontForge AppImages, the official G'MIC `.deb` for the Debian/Ubuntu release with any missing libraries fetched by
+  `tools/deb_fill.py`, and SoX from conda-forge via micromamba). It also installs Xvfb for Krita. `--check` covers
+  them; `--no-art` skips all four and `--no-krita` skips only Krita.
+- New `bct fx` (G'MIC): 21 named styles (`painting`, `watercolor`, `cartoon`, `sketch`, `halftone`, `glow`, ...),
+  `strip` for a labelled side-by-side comparison, `gui` to run any of G'MIC's ~430 GUI filters by menu name with
+  its defaults (`gui-info`, `list --all/--search`), and `run` for raw pipelines. Each result reports how much the
+  picture changed. The `painting` style works around a colour bug in G'MIC 4.0.7's own painting filter.
+- New `bct paint` (Krita, no window): `export` between `.kra .ora .psd .png ...` keeping layers, `info` (layer list
+  read from the file), `stack` (layered `.kra` from PNGs) and `script` (your Python inside Krita via kritarunner,
+  with its return value and print output as JSON). Runs under Xvfb when there's no display; `.kra` → `.png` works
+  without Krita.
+- New `bct font` (FontForge): `build` a font from SVG letters (common scale, baseline, side bearings, space glyph,
+  correct line metrics), `specimen` PNG with missing-character report, `convert` (TTF/OTF/WOFF/WOFF2/SFD), `info`.
+- New `bct audio` (SoX): `tone`, `noise`, `synth` (note names, chords, rests, bpm), `trim`, `fade`, `norm`,
+  `concat`, `mix`, `fx`, `wave` and `spectrogram` pictures, and `probe` (length, peak/RMS dBFS, silent, clipped).
+- AGENTS.md: sections on G'MIC, Krita, FontForge and SoX with their gotchas. `selftest.sh` now has 89 checks,
+  including FFT pitch, exact tune length, glyph shapes rendered with Pillow, and Krita output matched pixel-for-pixel
+  against the `bct layers` render.
+
 ## 0.2.1 (2026-11-01)
 
 - Docs only: README "Examples" section with a rocket turntable GIF, a Northwind icon set and the parametric phone
