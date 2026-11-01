@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 (2026-11-01)
+
+- Docs only: rewrote README.md with quick starts, the with/without-toolkit test results and comparison images
+  (`docs/images/`), self-test coverage, and platform limits.
+
 ## 0.1.1 (2026-11-01)
 
 - `bct layers`: any layer can take `"center": "x" | "y" | "both"` to centre it on the canvas.
