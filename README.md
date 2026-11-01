@@ -1,7 +1,7 @@
 # bot-creative-toolkit
 
-Headless visual-work tools for AI agents. One setup script installs Blender, Inkscape, GIMP and potrace on a Linux
-box with no screen, and a small CLI, `bct`, turns them into things a bot can drive and, more importantly, **check**.
+Headless visual-work tools for AI agents. One setup script installs Blender, Inkscape, GIMP, potrace, FFmpeg,
+ImageMagick 7 and OpenSCAD on a Linux box with no screen, and a small CLI, `bct`, turns them into things a bot can drive and, more importantly, **check**.
 
 **Who it's for:** any AI agent or bot that can run shell commands and look at an image: Grok bots, Claude Code,
 Codex, Cursor agents, or your own scripts. No GPU or display needed.
@@ -14,6 +14,9 @@ Codex, Cursor agents, or your own scripts. No GPU or display needed.
 | `bct layers` | Builds images from a JSON layer stack (images, fills, gradients, shapes, text; position, centring, opacity, blend mode, rotation, rounded image corners). Edit one layer and only that layer is redrawn. Writes PNG and layered OpenRaster (`.ora`). |
 | `bct vector` | Bitmap to SVG with potrace (one colour or several), draw and edit SVG elements by id, export PNG, PDF or plain SVG with Inkscape (optionally with text turned into outlines). |
 | `bct gimp` | Runs GIMP 3 with no window: convert formats (ORA to PSD, XCF to PNG and so on) or run your own GIMP Python. |
+| `bct video` | FFmpeg made simple: frames to MP4/GIF/WebM (good-palette GIFs), 360° turntables of any model, exact-frame trims, a contact sheet of a video's frames, and probe. |
+| `bct img` | ImageMagick 7 batch jobs: resize (fit, fill, pad), crop (box, trim, circle), icon sets 16–512 px plus `.ico`, montage grids, format conversion, colour adjustments. |
+| `bct scad` | OpenSCAD parts to STL with parameters (`-D width=100`), a PNG of the part, a Blender 4-view sheet, and the measured bounding box. |
 
 Every command prints JSON on stdout (paths, sizes, what changed), so an agent can read results instead of guessing.
 
@@ -29,8 +32,10 @@ git clone https://github.com/SnazzyGaz/bot-creative-toolkit && cd bot-creative-t
 - Needs x86_64 Linux, `bash`, `curl` and Python 3.9+.
 - `setup.sh` is safe to re-run and skips anything already installed. It tries apt (with sudo) first. If that is not
   available it downloads the official portable builds (Blender 4.2.3, Inkscape 1.4.2 and GIMP 3.0.6 AppImages,
-  potrace 1.16) into `~/.local/opt/bct` and `~/blender`, linked into `~/.local/bin`.
-- Options: `--check` (report only), `--no-gimp` (skip the biggest download), `--portable` (skip apt).
+  potrace 1.16, a static FFmpeg, the ImageMagick 7 AppImage and an OpenSCAD development snapshot) into
+  `~/.local/opt/bct` and `~/blender`, linked into `~/.local/bin`.
+- Options: `--check` (report only), `--no-gimp` (skip the biggest download), `--no-extra` (skip FFmpeg, ImageMagick
+  and OpenSCAD), `--portable` (skip apt).
 - If `bct` is not found, add `~/.local/bin` to `PATH`. `bct doctor` shows what is installed.
 
 ## Quick start
@@ -77,6 +82,35 @@ bct vector export icon.svg -o icon_final.svg --text-to-path             # plain 
 ```bash
 bct gimp convert poster.ora poster.psd          # keeps layers
 bct gimp script my_edit.py                      # GIMP 3 Python, no window
+```
+
+### Video
+
+```bash
+bct video turntable examples/rocket.py -o spin.mp4 --gif spin.gif --frames 36 --fps 18 --size 400
+bct video encode frames/ -o clip.mp4 --fps 24                 # or 'shots/*.png', or f_%04d.png
+bct video encode frames/ -o clip.gif --fps 12 --width 480     # two-pass palette GIF
+bct video trim clip.mp4 -o cut.mp4 --start 2 --duration 3     # exact frame count
+bct video sheet clip.mp4 -o sheet.png --count 9               # check a video with one image
+```
+
+### Batch images
+
+```bash
+bct img resize photos/*.jpg --out-dir thumbs --fill 400x300
+bct img resize logo.png -o square.png --fit 512x512 --pad --background none
+bct img icons mark.svg -o icons --ico favicon.ico             # 16..512 px PNGs + multi-size .ico
+bct img crop avatar.png -o round.png --circle
+bct img montage shots/*.png -o grid.png --cols 4 --tile 256 --labels
+bct img convert big.png -o small.webp --quality 80 --strip
+bct img adjust dull.jpg -o better.jpg --auto-level --saturation 115
+```
+
+### CAD parts
+
+```bash
+bct scad params examples/phone_stand.scad                     # the adjustable sizes and their ranges
+bct scad render examples/phone_stand.scad -o stand.stl -D width=100 -D angle=70 --png stand.png --sheet sheet.png
 ```
 
 ## Tested results: with vs without the toolkit
@@ -180,7 +214,7 @@ gaps. 0.1.1 uses the lightest colour as the background and stacks the rest light
 
 ## Self-test
 
-`./selftest.sh` runs 25 end-to-end checks and exits non-zero if any fail. The last run took about 20 s on a CPU-only
+`./selftest.sh` runs 55 end-to-end checks and exits non-zero if any fail. The last run took about 26 s on a CPU-only
 box, not counting first-time downloads.
 
 - **setup (1):** every program is installed (`setup.sh --check`).
@@ -201,6 +235,18 @@ box, not counting first-time downloads.
   - new, add, set, recolor and delete all show up in `list`;
   - Inkscape export comes out at the requested width with the right pixels;
   - traced SVGs export too.
+- **video (11):**
+  - 30 odd-sized frames become an H.264 MP4 that ffprobe reports as 30 frames, 2.0 s, even size, `yuv420p`;
+  - a printf pattern becomes a 120 px GIF that keeps all 30 frames;
+  - trims of MP4 and GIF give exactly 15 frames for 1 s;
+  - the frame sheet has the right layout and is not blank;
+  - an 8-frame turntable gives an MP4 and a GIF of 8 frames each, and the frames differ.
+- **img (11):** fit + pad and fill give exact sizes; an icon set has every size 16–512 and the `.ico` holds 16–256
+  with transparent corners; a montage has the right grid size; PNG converts to WebP and JPEG; `--circle` clears the
+  corners; saturation 0 gives grey.
+- **scad (8):** parameters are listed; the phone stand with `-D width=100 -D depth=110` gives a non-empty STL whose
+  re-measured box is 100 × 110 mm and matches OpenSCAD's own; the PNG is the right size and not blank; string
+  parameters and `echo()` come through; a 2D-only model is refused; the Blender sheet of the STL measures 8 cm.
 
 ## Platform support and known limits
 
@@ -214,6 +260,9 @@ box, not counting first-time downloads.
   skip it with `--no-gimp` if you don't need PSD or XCF.
 - **The 3D checks** (`--qa`) need [model-qa](https://github.com/SnazzyGaz/model-qa), installed separately. Without it,
   `bct look` still works and reports the check as skipped.
+- **OpenSCAD** comes from the development snapshots, because the last stable release (2021.01) has no fast Manifold
+  backend. If the snapshot server is down, setup falls back to 2021.01, which works but renders much more slowly.
+- **Turntables** render every frame in Cycles on the CPU: 36 frames at 400 px took about 15 s for the rocket.
 - **Text** in layers and SVGs uses whatever fonts the box has (DejaVu in the tests). Use `--text-to-path` before
   handing an SVG to someone else.
 

@@ -156,6 +156,86 @@ p=im.getpixel((100,80)); assert p[0]>200 and p[1]<50, ('box',p)
 q=im.getpixel((300,100)); assert min(q)>200, ('dot should be gone',q)"
 check "vector: traced SVG exports too" "$BCT" vector export "$T/logo3.svg" -o "$T/logo3.png" --background "#ffffff"
 
+# ---------- 5. video (FFmpeg) ----------
+mkdir -p "$T/frames"
+py "
+from PIL import Image, ImageDraw
+for i in range(30):
+    im=Image.new('RGB',(161,121),(20,20,40)); d=ImageDraw.Draw(im)
+    d.ellipse([10+4*i,40,50+4*i,80],fill=(255,int(8*i),0)); im.save('$T/frames/f_%04d.png'%i)"
+check "video: 30 frames (odd size) -> MP4 at 15 fps" sh -c "'$BCT' video encode '$T/frames' -o '$T/clip.mp4' --fps 15 > '$T/v1.json'"
+check "video: ffprobe says h264, 30 frames, 2.0 s, even size, yuv420p" py "
+import json; v=json.load(open('$T/v1.json'))
+assert v['codec']=='h264' and v['frames']==30 and abs(v['duration']-2.0)<0.05, v
+assert v['width']%2==0 and v['height']%2==0 and v['pix_fmt']=='yuv420p', v"
+check "video: printf pattern -> GIF keeps all 30 frames" sh -c "'$BCT' video encode '$T/frames/f_%04d.png' -o '$T/clip.gif' --fps 15 --width 120 > '$T/v2.json'"
+check "video: GIF is 120 px wide with 30 frames" py "
+import json; v=json.load(open('$T/v2.json')); assert v['codec']=='gif' and v['frames']==30 and v['width']==120, v"
+check "video: trim 0.5 s + 1.0 s gives exactly 15 frames (MP4 and GIF)" sh -c "
+'$BCT' video trim '$T/clip.mp4' -o '$T/cut.mp4' --start 0.5 --duration 1 > '$T/v3.json' &&
+'$BCT' video trim '$T/clip.gif' -o '$T/cut.gif' --start 0.5 --end 1.5 > '$T/v4.json'"
+check "video: trimmed frame counts and durations" py "
+import json
+for f in ('v3','v4'):
+    v=json.load(open('$T/'+f+'.json')); assert v['frames']==15 and abs(v['duration']-1.0)<0.1, (f,v)  # GIF delays are whole 1/100 s"
+check "video: frame contact sheet, 3x2, not blank" sh -c "'$BCT' video sheet '$T/clip.mp4' -o '$T/vsheet.png' --count 6 --cols 3 --width 100 >/dev/null" 
+check "video: sheet size and content" py "
+from PIL import Image, ImageStat
+im=Image.open('$T/vsheet.png'); w,h=im.size; assert w==300 and h>150, im.size
+assert ImageStat.Stat(im.convert('L')).stddev[0]>10"
+check "video: turntable of a model, 8 frames -> MP4 + GIF" sh -c "'$BCT' video turntable '$T/scene.blend' -o '$T/turn.mp4' \
+      --gif '$T/turn.gif' --frames 8 --fps 8 --size 96 --samples 4 > '$T/v5.json'"
+check "video: turntable outputs have 8 frames, 1.0 s" py "
+import json; v=json.load(open('$T/v5.json'))
+assert v['frames_rendered']==8 and v['mp4']['frames']==8 and v['gif']['frames']==8 and abs(v['mp4']['duration']-1.0)<0.05, v"
+check "video: turntable frames differ (the camera moves)" py "
+import subprocess
+from PIL import Image, ImageChops, ImageStat
+a=[subprocess.run(['ffmpeg','-v','error','-i','$T/turn.mp4','-vf','select=eq(n\,%d)'%n,'-frames:v','1','-y','$T/tt%d.png'%n]) for n in (0,2)]
+d=ImageChops.difference(Image.open('$T/tt0.png').convert('L'),Image.open('$T/tt2.png').convert('L'))
+assert ImageStat.Stat(d).mean[0]>1, 'frames identical'"
+
+# ---------- 6. img (ImageMagick 7) ----------
+check "img: fit + pad a 161x121 image into 100x100" sh -c "'$BCT' img resize '$T/frames/f_0000.png' -o '$T/pad.png' --fit 100x100 --pad --background '#ffffff' > '$T/i1.json'"
+check "img: padded result is exactly 100x100" py "
+import json; o=json.load(open('$T/i1.json'))['outputs'][0]; assert (o['width'],o['height'])==(100,100), o"
+check "img: fill crops to the exact box" sh -c "'$BCT' img resize '$T/frames/f_0000.png' -o '$T/fill.png' --fill 64x96 | grep -q '\"width\": 64'"
+check "img: icon set 16..512 + .ico" sh -c "'$BCT' img icons '$T/green.png' -o '$T/icons' --ico app.ico > '$T/i2.json'"
+check "img: every PNG has its size and the .ico holds 16..256" py "
+import json; r=json.load(open('$T/i2.json'))
+assert [(p['width'],p['height']) for p in r['pngs']]==[(s,s) for s in (16,32,48,64,128,256,512)], r['pngs']
+assert sorted(s[0] for s in r['ico']['sizes'])==[16,32,48,64,128,256], r['ico']"
+check "img: icon keeps transparency in the corners" py "
+from PIL import Image; im=Image.open('$T/icons/icon-64.png').convert('RGBA'); assert im.getpixel((0,0))[3]==0 and im.getpixel((32,32))[3]==255"
+check "img: montage of 6 frames, 3 columns" sh -c "'$BCT' img montage '$T'/frames/f_000[0-5].png -o '$T/grid.png' --cols 3 --tile 50 --gap 5 > '$T/i3.json'"
+check "img: montage is 3x2 cells of 60 px" py "
+import json; m=json.load(open('$T/i3.json'))['montage']; assert (m['width'],m['height'])==(180,120), m"
+check "img: convert PNG -> WebP and JPEG" sh -c "'$BCT' img convert '$T/frames/f_0000.png' -o '$T/f.webp' --quality 80 | grep -q WEBP && '$BCT' img convert '$T/frames/f_0000.png' -o '$T/f.jpg' --strip | grep -q JPEG"
+check "img: crop --circle clears the corners" sh -c "'$BCT' img crop '$T/blue.png' -o '$T/round.png' --circle >/dev/null && python3 -c \"
+from PIL import Image; im=Image.open('$T/round.png').convert('RGBA'); assert im.getpixel((0,0))[3]==0 and im.getpixel((30,30))[3]==255\""
+check "img: adjust saturation 0 gives grey pixels" sh -c "'$BCT' img adjust '$T/frames/f_0010.png' -o '$T/grey.png' --saturation 0 >/dev/null && python3 -c \"
+from PIL import Image; p=Image.open('$T/grey.png').convert('RGB').getpixel((90,60)); assert max(p)-min(p)<=3, p\""
+
+# ---------- 7. scad (OpenSCAD) ----------
+check "scad: params lists the Customizer variables" sh -c "'$BCT' scad params '$HERE/examples/phone_stand.scad' | grep -q '\"name\": \"angle\"'"
+check "scad: phone stand -> STL + PNG with -D width=100" sh -c "'$BCT' scad render '$HERE/examples/phone_stand.scad' -o '$T/stand.stl' \
+      -D width=100 -D depth=110 --png '$T/stand.png' --size 320x240 > '$T/s1.json'"
+check "scad: STL is valid, non-empty, and its box matches the parameters" py "
+import json; r=json.load(open('$T/s1.json')); s=r['stl']
+assert s['triangles']>20, s
+assert abs(s['size_mm'][0]-100)<0.01 and abs(s['size_mm'][1]-110)<0.01, s
+assert abs(r['bbox_mm']['size'][0]-s['size_mm'][0])<0.01, (r['bbox_mm'],s)"
+check "scad: preview PNG is the right size and not blank" py "
+from PIL import Image, ImageStat
+im=Image.open('$T/stand.png').convert('L'); assert im.size==(320,240), im.size
+assert ImageStat.Stat(im).stddev[0]>15, 'preview looks blank'"
+check "scad: -S string parameter and echo() are reported" sh -c "printf 'name=\"x\";\necho(name);\ncube(5);\n' > '$T/s.scad' &&
+      '$BCT' scad render '$T/s.scad' -o '$T/s.stl' -S 'name=hi \"there\"' | grep -q 'hi'"
+check "scad: a 2D-only model is refused with a clear error" sh -c "echo 'square(5);' > '$T/flat.scad' && ! '$BCT' scad render '$T/flat.scad' -o '$T/flat.stl' >/dev/null 2>&1"
+check "scad: Blender sheet of the STL (mm -> m)" sh -c "'$BCT' scad render '$HERE/examples/phone_stand.scad' -o '$T/stand2.stl' --sheet '$T/stand_sheet.png' --sheet-size 120 > '$T/s2.json'"
+check "scad: sheet sees an 8 cm wide object" py "
+import json; s=json.load(open('$T/s2.json'))['sheet']; assert abs(s['size_m'][0]-0.08)<0.001, s"
+
 # ---------- summary ----------
 END=$(date +%s)
 echo "----"

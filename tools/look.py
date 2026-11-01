@@ -1,8 +1,10 @@
 """bct look: render a .blend file or a Python scene script from several angles into one labelled contact sheet.
 
-  bct look MODEL.blend|scene.py [-o sheet.png] [--views front,right,top,three_quarter] [--size 320]
+  bct look MODEL.blend|scene.py|mesh.stl|.obj|.ply|.glb [-o sheet.png] [--views front,right,top,three_quarter] [--size 320]
            [--samples 16] [--engine cycles|eevee|workbench] [--clay] [--ortho] [--lights auto|studio|scene]
-           [--save-blend built.blend] [--qa] [--qa-args "--category chair"] [--keep]
+           [--save-blend built.blend] [--qa] [--qa-args "--category chair"] [--keep] [--margin 1.08]
+           [--import-scale 0.001]   (meshes: e.g. OpenSCAD STL in mm -> metres)
+           [--orbit N --frames-dir DIR [--orbit-elev 0.35]]   (turntable frames, no sheet; used by bct video)
 
 Prints JSON: sheet path, tile paths, object names, size in metres, timings, and model-qa results if --qa.
 """
@@ -63,14 +65,20 @@ def main(argv=None):
     ap.add_argument("--qa-args", default="", help="extra model-qa flags, e.g. \"--category chair --profile render\"")
     ap.add_argument("--keep", action="store_true", help="keep the single-view tiles next to the sheet")
     ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--margin", type=float, default=1.08, help="framing: 1.0 = bounding sphere just fits")
+    ap.add_argument("--import-scale", type=float, default=1.0, help="scale for imported meshes (0.001: mm to m)")
+    ap.add_argument("--orbit", type=int, default=0, help="render N turntable frames instead of the views")
+    ap.add_argument("--orbit-elev", type=float, default=0.35)
+    ap.add_argument("--frames-dir", default=None, help="with --orbit: where the frames go")
     a = ap.parse_args(argv)
 
     model = os.path.abspath(a.model)
     if not os.path.isfile(model):
         die(f"not found: {a.model}")
     ext = os.path.splitext(model)[1].lower()
-    if ext not in (".blend", ".py"):
-        die("model must be a .blend file or a .py script that builds the scene with bpy")
+    MESH = (".stl", ".obj", ".ply", ".glb", ".gltf")
+    if ext not in (".blend", ".py") + MESH:
+        die("model must be a .blend file, a .py script that builds the scene with bpy, or a mesh (" + " ".join(MESH) + ")")
     views = [v.strip() for v in a.views.split(",") if v.strip()]
     known = {"front", "back", "right", "side", "left", "top", "bottom", "three_quarter", "three_quarter_back"}
     bad = [v for v in views if v not in known]
@@ -83,12 +91,18 @@ def main(argv=None):
     out = os.path.abspath(a.out or os.path.splitext(model)[0] + "_sheet.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     work = (os.path.splitext(out)[0] + "_tiles") if a.keep else tempfile.mkdtemp(prefix="bct_look_")
+    if a.orbit:
+        if not a.frames_dir:
+            die("--orbit needs --frames-dir")
+        work = os.path.abspath(a.frames_dir); a.keep = True
     save_blend = a.save_blend
-    if ext == ".py" and a.qa and not save_blend:
+    if ext != ".blend" and a.qa and not save_blend:
         save_blend = os.path.join(work if a.keep else tempfile.mkdtemp(prefix="bct_qa_"), "scene.blend")
     cfg = {"outdir": work, "views": views, "size": a.size, "samples": a.samples, "engine": a.engine,
            "clay": a.clay, "ortho": a.ortho, "lights": a.lights,
            "script": model if ext == ".py" else None,
+           "import": model if ext in MESH else None, "import_scale": a.import_scale,
+           "margin": a.margin, "orbit": a.orbit, "orbit_elev": a.orbit_elev,
            "save_blend": os.path.abspath(save_blend) if save_blend else None}
     cmd = [blender, "-b", "--factory-startup"] + ([model] if ext == ".blend" else []) + \
           ["--python-exit-code", "1", "-P", os.path.join(HERE, "look_blender.py"), "--", json.dumps(cfg)]
@@ -103,6 +117,10 @@ def main(argv=None):
         die(f"Blender failed (exit {p.returncode}):\n{tail}")
     info = json.load(open(info_path))
     render_s = round(time.time() - t0, 1)
+    if a.orbit:
+        emit({"frames_dir": work, "frames": [t["path"] for t in info["tiles"]], "objects": info["objects"],
+              "triangles": info["triangles"], "size_m": info["size_m"], "render_seconds": render_s})
+        return
     sx, sy, sz = info["size_m"]
     title = f"{os.path.basename(model)}  |  {len(info['objects'])} obj  {info['triangles']} tris  {sx:g} x {sy:g} x {sz:g} m"
     sheet_size = contact_sheet(info["tiles"], out, title, a.cols)
@@ -121,7 +139,7 @@ def main(argv=None):
         if not mqa:
             res["model_qa"] = {"skipped": "model-qa not installed (pip install it from github.com/SnazzyGaz/model-qa, or set MODEL_QA)"}
         else:
-            target = cfg["save_blend"] if ext == ".py" else model
+            target = cfg["save_blend"] if ext != ".blend" else model
             qa_out = os.path.splitext(out)[0] + "_qa"
             qcmd = [mqa, "check", target, "--look", "--brief", "-o", qa_out] + shlex.split(a.qa_args)
             try:

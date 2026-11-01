@@ -16,6 +16,24 @@ if cfg.get("script"):
     exec(compile(code, cfg["script"], "exec"), {"__name__": "__main__", "__file__": cfg["script"]})
     if cfg.get("save_blend"):
         bpy.ops.wm.save_as_mainfile(filepath=cfg["save_blend"])
+elif cfg.get("import"):
+    for ob in list(bpy.data.objects):
+        bpy.data.objects.remove(ob, do_unlink=True)
+    f = cfg["import"]; ext = os.path.splitext(f)[1].lower()
+    if ext == ".stl":
+        bpy.ops.wm.stl_import(filepath=f)
+    elif ext == ".obj":
+        bpy.ops.wm.obj_import(filepath=f)
+    elif ext == ".ply":
+        bpy.ops.wm.ply_import(filepath=f)
+    else:
+        bpy.ops.import_scene.gltf(filepath=f)
+    if cfg.get("import_scale", 1.0) != 1.0:
+        for ob in bpy.context.scene.objects:
+            ob.scale = [v * cfg["import_scale"] for v in ob.scale]
+    bpy.context.view_layer.update()
+    if cfg.get("save_blend"):
+        bpy.ops.wm.save_as_mainfile(filepath=cfg["save_blend"])
 
 scene = bpy.context.scene
 deps = bpy.context.evaluated_depsgraph_get()
@@ -94,6 +112,14 @@ dist = radius / math.sin(fov / 2) * cfg.get("margin", 1.08)
 if cfg.get("ortho"):
     cd.type = "ORTHO"; cd.ortho_scale = radius * 2 * cfg.get("margin", 1.08)
 
+orbit = cfg.get("orbit") or 0
+if orbit:   # turntable: N views evenly round the model, starting at the front, at a fixed height
+    el = cfg.get("orbit_elev", 0.35)
+    names = []
+    for i in range(orbit):
+        a = -math.pi / 2 + 2 * math.pi * i / orbit
+        VIEWS[f"orbit_{i:04d}"] = (math.cos(a), math.sin(a), el); names.append(f"orbit_{i:04d}")
+    cfg["views"] = names
 tiles = []
 for v in cfg["views"]:
     d = Vector(VIEWS[v]).normalized()

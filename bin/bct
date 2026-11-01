@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bct: one command for the toolkit.  bct <look|layers|vector|gimp|doctor> ...   (bct help)
+# bct: one command for the toolkit.  bct <look|layers|vector|gimp|video|img|scad|doctor> ...   (bct help)
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
 cmd="${1:-help}"; shift 2>/dev/null
@@ -8,6 +8,9 @@ case "$cmd" in
   layers) exec python3 "$HERE/tools/layers.py" "$@";;
   vector) exec python3 "$HERE/tools/vector.py" "$@";;
   gimp)   exec python3 "$HERE/tools/gimp_run.py" "$@";;
+  video)  exec python3 "$HERE/tools/video.py" "$@";;
+  img)    exec python3 "$HERE/tools/img.py" "$@";;
+  scad)   exec python3 "$HERE/tools/scad.py" "$@";;
   doctor) exec "$HERE/setup.sh" --check;;
   help|-h|--help)
     cat <<EOF
@@ -15,6 +18,9 @@ bct look   MODEL.blend|scene.py -o sheet.png    render several angles into one c
 bct layers render|new|list|add|set|replace|move|hide|show|reorder|remove|from-ora ...   layered images (JSON -> PNG/ORA)
 bct vector trace|new|add|set|recolor|delete|list|export ...    bitmap->SVG, SVG edits, PNG export
 bct gimp   convert IN OUT | script FILE.py | eval "python code"   run GIMP headless
+bct video  encode|turntable|trim|sheet|probe ...   frames->MP4/GIF, model turntables, trims, frame sheets (FFmpeg)
+bct img    resize|crop|icons|montage|convert|adjust|info batch raster jobs (ImageMagick 7)
+bct scad   render|png|params MODEL.scad ...          OpenSCAD to STL + previews, -D parameters
 bct doctor                                      show what is installed
 Add --help after any command for its options. Guide: $HERE/AGENTS.md
 EOF

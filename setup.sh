@@ -5,6 +5,7 @@
 #   ./setup.sh             install what's missing
 #   ./setup.sh --check     only report what's installed
 #   ./setup.sh --no-gimp   skip GIMP (it's the biggest download)
+#   ./setup.sh --no-extra  skip FFmpeg, ImageMagick and OpenSCAD
 #   ./setup.sh --portable  skip apt and use the official portable builds
 #
 # Order for each program: already on PATH / known folder -> apt (with sudo) -> official portable build.
@@ -17,11 +18,16 @@ BLENDER_URL="${BCT_BLENDER_URL:-https://download.blender.org/release/Blender4.2/
 INKSCAPE_URL="${BCT_INKSCAPE_URL:-https://inkscape.org/gallery/item/56343/Inkscape-ebf0e94-x86_64.AppImage}"
 GIMP_URL="${BCT_GIMP_URL:-https://download.gimp.org/gimp/v3.0/linux/GIMP-3.0.6-x86_64.AppImage}"
 POTRACE_URL="${BCT_POTRACE_URL:-https://potrace.sourceforge.net/download/1.16/potrace-1.16.linux-x86_64.tar.gz}"
+FFMPEG_URL="${BCT_FFMPEG_URL:-https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz}"
+MAGICK_URL="${BCT_MAGICK_URL:-}"        # empty: newest gcc x86_64 AppImage from GitHub releases, then a pinned one
+MAGICK_PINNED="https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-gcc-x86_64.AppImage"
+OPENSCAD_URL="${BCT_OPENSCAD_URL:-}"    # empty: newest nightly AppImage (has the fast Manifold backend), then 2021.01
+OPENSCAD_STABLE="https://files.openscad.org/OpenSCAD-2021.01-x86_64.AppImage"
 
-CHECK=0; NOGIMP=0; PORTABLE=0
+CHECK=0; NOGIMP=0; PORTABLE=0; NOEXTRA=0
 for a in "$@"; do case "$a" in
-  --check) CHECK=1;; --no-gimp) NOGIMP=1;; --portable) PORTABLE=1;;
-  -h|--help) sed -n 2,11p "$0"; exit 0;;
+  --check) CHECK=1;; --no-gimp) NOGIMP=1;; --no-extra) NOEXTRA=1;; --portable) PORTABLE=1;;
+  -h|--help) sed -n 2,12p "$0"; exit 0;;
   *) echo "unknown option: $a"; exit 2;; esac; done
 
 mkdir -p "$BIN" "$OPT"
@@ -137,6 +143,52 @@ EOS
       chmod +x "$BIN/gimp-console"
     fi; }
   [ -n "$(gimp_cmd)" ] && say "gimp: ok" || { say "gimp: install failed"; FAILED+=(gimp); }
+fi
+
+# ---------- FFmpeg (video) ----------
+if [ "$NOEXTRA" = 1 ]; then say "ffmpeg/imagemagick/openscad: skipped (--no-extra)"
+else
+if have ffmpeg && have ffprobe; then say "ffmpeg: found $(command -v ffmpeg)"
+elif [ "$CHECK" = 1 ]; then say "ffmpeg: MISSING"; FAILED+=(ffmpeg)
+else
+  apt_install ffmpeg || {
+    t="$OPT/ffmpeg.tar.xz"
+    fetch "$FFMPEG_URL" "$t" && rm -rf "$OPT/ffmpeg" && mkdir -p "$OPT/ffmpeg" \
+      && tar -xJf "$t" -C "$OPT/ffmpeg" --strip-components=1 && rm -f "$t" \
+      && ln -sf "$OPT/ffmpeg/ffmpeg" "$BIN/ffmpeg" && ln -sf "$OPT/ffmpeg/ffprobe" "$BIN/ffprobe"; }
+  have ffmpeg && have ffprobe && say "ffmpeg: ok" || { say "ffmpeg: install failed"; FAILED+=(ffmpeg); }
+fi
+
+# ---------- ImageMagick 7 (the `magick` command) ----------
+if have magick; then say "imagemagick: found $(command -v magick)"
+elif [ "$CHECK" = 1 ]; then say "imagemagick: MISSING (need ImageMagick 7 'magick')"; FAILED+=(imagemagick)
+else
+  apt_install imagemagick || true      # older distros ship ImageMagick 6 (no `magick`), then the AppImage is used
+  if ! have magick; then
+    url="$MAGICK_URL"
+    [ -n "$url" ] || url="$(curl -fsSL --retry 3 https://api.github.com/repos/ImageMagick/ImageMagick/releases/latest 2>/dev/null \
+      | grep -oE 'https://[^"]+gcc-x86_64\.AppImage' | head -1)"
+    appimage_install imagemagick "${url:-$MAGICK_PINNED}" || appimage_install imagemagick "$MAGICK_PINNED"
+    [ -x "$OPT/imagemagick/AppRun" ] && ln -sf "$OPT/imagemagick/AppRun" "$BIN/magick"
+  fi
+  have magick && say "imagemagick: ok" || { say "imagemagick: install failed"; FAILED+=(imagemagick); }
+fi
+
+# ---------- OpenSCAD ----------
+if have openscad; then say "openscad: found $(command -v openscad)"
+elif [ "$CHECK" = 1 ]; then say "openscad: MISSING"; FAILED+=(openscad)
+else
+  url="$OPENSCAD_URL"
+  if [ -z "$url" ]; then
+    n="$(curl -fsSL --retry 3 https://files.openscad.org/snapshots/ 2>/dev/null \
+      | grep -oE 'OpenSCAD-[0-9.]+-x86_64\.AppImage' | sort -uV | tail -1)"
+    [ -n "$n" ] && url="https://files.openscad.org/snapshots/$n"
+  fi
+  # the nightly is preferred over apt: apt's 2021.01 has no Manifold backend and is far slower
+  { [ -n "$url" ] && appimage_install openscad "$url"; } || appimage_install openscad "$OPENSCAD_STABLE" || apt_install openscad || true
+  [ -x "$OPT/openscad/AppRun" ] && ln -sf "$OPT/openscad/AppRun" "$BIN/openscad"
+  have openscad && say "openscad: ok" || { say "openscad: install failed"; FAILED+=(openscad); }
+fi
 fi
 
 # ---------- the bct command ----------

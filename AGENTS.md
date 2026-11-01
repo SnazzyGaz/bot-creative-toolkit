@@ -1,18 +1,20 @@
 # Instructions for AI agents
 
-You are doing visual work (3D, layered images, vectors) on a headless Linux box with `bct`. Follow this file.
+You are doing visual work (3D, layered images, vectors, video, batch images, CAD parts) on a headless Linux box
+with `bct`. Follow this file.
 It works for any agent that can run shell commands and view images.
 
 ## 0. Install once
 
 ```bash
 git clone https://github.com/SnazzyGaz/bot-creative-toolkit && cd bot-creative-toolkit
-./setup.sh          # installs what's missing: Blender, Inkscape, GIMP, potrace, Pillow, numpy. Safe to re-run.
+./setup.sh          # installs what's missing: Blender, Inkscape, GIMP, potrace, FFmpeg, ImageMagick 7, OpenSCAD,
+                    # Pillow, numpy. Safe to re-run.
 ./selftest.sh       # must end with "selftest: PASS"
 ```
 `setup.sh` tries apt first (with sudo), then the official portable builds into `~/.local/opt/bct`, linked into
 `~/.local/bin`. If `bct` is not found, add `~/.local/bin` to `PATH`. `bct doctor` shows what's installed.
-`./setup.sh --no-gimp` skips GIMP (the biggest download). Blender already in `~/blender` or on `PATH` is used as is.
+`./setup.sh --no-gimp` skips GIMP (the biggest download); `--no-extra` skips FFmpeg, ImageMagick and OpenSCAD. Blender already in `~/blender` or on `PATH` is used as is.
 
 ## 1. Why you need it
 
@@ -23,7 +25,8 @@ and clean vectors. Every command prints JSON on stdout, so read the paths from i
 ## 2. 3D: build, look, fix (cheapest first)
 
 1. **Build** the scene in a `.py` script with `bpy` (it runs in an empty scene; see `examples/scene_example.py`),
-   or save a `.blend`.
+   or save a `.blend`. Mesh files work too: `.stl .obj .ply .glb .gltf`. STL from CAD tools is in millimetres, so
+   add `--import-scale 0.001` or the header will say your 8 cm part is 80 m.
 2. **Look:** `bct look scene.py -o sheet.png` renders front, right, top and three-quarter views into ONE labelled
    contact sheet (about 2 s at the default 320 px tiles). Open just `sheet.png`. The header shows object count,
    triangles and size in metres, which catches unit mistakes fast.
@@ -87,12 +90,83 @@ are flattened, `.psd/.xcf/.ora` keep layers. For anything else, `bct gimp eval "
 `bct gimp script file.py` runs GIMP 3 Python with `Gimp`, `Gio`, `GLib` imported. Use absolute paths.
 GIMP takes a few seconds to start, so batch work into one script.
 
-## 6. Don't
+## 6. Video (FFmpeg): `bct video`
+
+- `bct video encode FRAMES -o out.mp4|out.gif|out.webm --fps 24` turns frames into a video. FRAMES can be a folder,
+  a quoted glob (`'shots/*.png'`, sorted by name) or a printf pattern (`f_%04d.png`). MP4 is H.264, `yuv420p`,
+  `+faststart`, odd sizes rounded down to even, so it plays everywhere. GIFs use a two-pass palette (good colours,
+  small files). `--width` scales, `--crf` sets MP4 quality (18 = near lossless, 23 = default, 28 = small).
+- `bct video turntable model -o spin.mp4 --gif spin.gif --frames 48 --fps 24 --size 480` renders a 360° orbit of a
+  `.blend`, `bpy` script or mesh with Blender and encodes it. Start small (`--frames 24 --size 320 --samples 8`,
+  about 10 s), check it, then do the final one. `--clay` for shape only, `--elev` for camera height.
+- `bct video trim IN -o OUT --start 2 --duration 3` (or `--end`). It re-encodes and counts frames exactly;
+  `--copy` is instant but cuts on keyframes, so the start can be off by up to a second.
+- `bct video sheet IN -o sheet.png --count 9` puts evenly spaced frames on one labelled image. Look at that instead
+  of opening a video or every frame.
+- `bct video probe IN` gives codec, size, fps, exact frame count and duration as JSON.
+
+FFmpeg tips if you call it yourself:
+- Options before `-i` apply to the input, after it to the output. `-framerate 24 -i f_%04d.png` (not `-r`) sets the
+  image sequence rate. `-ss` before `-i` seeks fast.
+- `-t` can drop the last frame to rounding; use `-frames:v N` when the count matters.
+- GIF: `split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a`. One pass without a
+  palette gives banding and big files. GIF frame delays are whole 1/100 s, so 15 fps plays as 14.3 or 16.7.
+- H.264 needs even width and height: `scale=trunc(iw/2)*2:trunc(ih/2)*2`. Add `-pix_fmt yuv420p` or some players
+  show a black screen.
+- Add `-v error` to stop FFmpeg flooding the log.
+
+## 7. Batch images (ImageMagick 7): `bct img`
+
+- `resize IN... -o OUT | --out-dir DIR` with `--fit WxH` (keep aspect, inside the box), `--fill WxH` (cover the
+  box, crop the rest), `--exact WxH` (stretch), or `--width/--height`. `--pad` after `--fit` pads to the full box,
+  centred, with `--background` (`none` = transparent). `--shrink-only` never enlarges.
+- `crop IN -o OUT --box 320x320+40+40 | --trim | --circle`. `--circle` makes the corners transparent.
+- `icons IN -o DIR --ico favicon.ico` writes `icon-16.png` … `icon-512.png` and a multi-size `.ico` (16 to 256).
+  It pads to a square first, so nothing is stretched. SVG input goes through Inkscape. Use a simple square mark,
+  not a wide wordmark: text turns to mush below 48 px. Check the 16 and 32 px sizes.
+- `montage IN... -o grid.png --cols 4 --tile 256 --labels` for a grid of pictures (`--native` keeps each one's size).
+- `convert IN -o OUT.webp --quality 80 --strip`; the format comes from the extension.
+- `adjust IN -o OUT --brightness 10 --contrast 5 --saturation 120 --gamma 1.1 --auto-level --grayscale --sharpen 1`.
+- `info IN...` gives size, format, alpha and frame sizes (for `.ico`/`.gif`) as JSON.
+
+ImageMagick tips if you call it yourself:
+- Use `magick`, not `convert` (that's IM6 and clashes with a Windows tool). `magick identify`, `magick montage`.
+- Settings (`-background`, `-gravity`, `-fill`, `-quality`) go before the operator that uses them.
+- Geometry: `800x600` fits inside, `800x600^` fills, `800x600!` stretches, `800x600>` shrinks only, `50%` scales.
+  Pad or crop to size with `-gravity center -extent 800x600`. Add `+repage` after `-crop` or `-trim`.
+- `mogrify` overwrites files in place; always give it `-path outdir`.
+- `-strip` removes metadata (smaller, private). JPEG/WebP `-quality 80-85` is the usual sweet spot.
+- If a format is refused with "not authorized", the system `policy.xml` blocks it (often PDF/PS); use Inkscape or
+  GIMP for those rather than loosening the policy.
+
+## 8. CAD parts (OpenSCAD): `bct scad`
+
+1. Write a `.scad` file with the sizes as variables at the top, each with a `// [min:max]` comment so they show
+   up as parameters (see `examples/phone_stand.scad`). Keep millimetres.
+2. `bct scad render part.scad -o part.stl --png part.png --sheet part_sheet.png -D width=100` writes a binary STL,
+   OpenSCAD's own picture and a 4-view Blender sheet. The JSON has the bounding box (from OpenSCAD and re-measured
+   from the STL), triangle count, `echo()` output and warnings. Check the size matches what you asked for.
+3. Look at the sheet, fix, render again. `bct scad params part.scad` lists the parameters and their ranges.
+
+- `-D name=value` takes an OpenSCAD expression (`-D width=100`, `-D holes=[3,5]`); `-S name=text` takes a string.
+  `-D` only overrides variables that the file already sets.
+- The PNG is rendered from the final geometry; faces made by a `difference()` cut show in a second colour, which is
+  normal. `--fast` uses OpenSCAD's quick preview instead, which can flicker where faces touch.
+- Uses the fast Manifold backend when the OpenSCAD build has it (setup installs a recent build; the 2021 release
+  in most distros is much slower and has no Manifold).
+- An empty STL means no 3D geometry (2D only, or everything subtracted); `bct scad` stops with an error.
+- If you call OpenSCAD yourself: `--render=force`, not bare `--render` (it swallows the next argument); `--summary all
+  --summary-file -` prints the bounding box as JSON; `--export-format binstl` for binary STL.
+- Avoid `minkowski()` on detailed shapes: it's very slow. Make holes 0.01 mm longer than the wall
+  (`translate([0,0,-0.01])`) so faces don't coincide.
+
+## 9. Don't
 
 - Don't render big or with many samples first. Start with the defaults; go bigger only for the final picture.
 - Don't open every tile or every file. One contact sheet per round is usually enough.
 - Don't rebuild a whole image to change one part. Edit the layer by id.
 - Don't trust that an edit worked: render or export, then look.
 - Don't print or paste huge SVG path data into chat. Use `bct vector list`.
+- Don't open a video or 48 turntable frames to check them. Use `bct video sheet`.
 
 Exit codes: `0` ok, `1` a check or conversion failed, `2` bad input or a missing program (the message says which).
