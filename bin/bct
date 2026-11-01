@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# bct: one command for the toolkit.  bct <look|layers|vector|gimp|doctor> ...   (bct help)
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export PATH="$HOME/.local/bin:$PATH"
+cmd="${1:-help}"; shift 2>/dev/null
+case "$cmd" in
+  look)   exec python3 "$HERE/tools/look.py" "$@";;
+  layers) exec python3 "$HERE/tools/layers.py" "$@";;
+  vector) exec python3 "$HERE/tools/vector.py" "$@";;
+  gimp)   exec python3 "$HERE/tools/gimp_run.py" "$@";;
+  doctor) exec "$HERE/setup.sh" --check;;
+  help|-h|--help)
+    cat <<EOF
+bct look   MODEL.blend|scene.py -o sheet.png    render several angles into one contact sheet
+bct layers render|new|list|add|set|replace|move|hide|show|reorder|remove|from-ora ...   layered images (JSON -> PNG/ORA)
+bct vector trace|new|add|set|recolor|delete|list|export ...    bitmap->SVG, SVG edits, PNG export
+bct gimp   convert IN OUT | script FILE.py | eval "python code"   run GIMP headless
+bct doctor                                      show what is installed
+Add --help after any command for its options. Guide: $HERE/AGENTS.md
+EOF
+    ;;
+  *) echo "unknown command: $cmd (try: bct help)" >&2; exit 2;;
+esac
