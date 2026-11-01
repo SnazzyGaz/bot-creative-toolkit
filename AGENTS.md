@@ -41,8 +41,8 @@ Engines: `cycles` (default, CPU, works with no screen), `workbench` (flat, fast)
 
 ## 3. Layered images: change one part without redoing the rest
 
-Write a JSON stack (layers bottom to top). Types: `fill` (colour or vertical gradient with `to`), `image`, `rect`,
-`ellipse`, `line`, `polygon`, `text`. Every layer takes `x`, `y`, `opacity`, `blend`
+Write a JSON stack (layers bottom to top). Types: `fill` (colour or vertical gradient with `to`), `image` (`radius` rounds its corners), `rect`,
+`ellipse`, `line`, `polygon`, `text`. Every layer takes `x`, `y`, `center` (`x`, `y` or `both`, to centre it on the canvas), `opacity`, `blend`
 (`normal multiply screen overlay darken lighten difference add`), `visible`, `rotate`. Full format: `bct layers --help`.
 
 ```bash
@@ -65,7 +65,8 @@ cache: after a one-layer edit only that layer should be in `drawn`.
 
 ```bash
 bct vector trace logo.png -o logo.svg --threshold 0.5 --despeckle 4      # one colour
-bct vector trace art.png -o art.svg --colors 4                           # posterise, one <g> per colour
+bct vector trace art.png -o art.svg --colors 4                           # posterise: lightest colour is the background,
+                                                                          # the rest stacked light to dark, one <g> each
 bct vector new icon.svg --size 256x256
 bct vector add icon.svg circle cx=128 cy=128 r=100 fill=#3a7 --id face
 bct vector add icon.svg text x=60 y=140 font-size=40 font-family=sans-serif fill=#fff --text "Hi" --id label
@@ -73,7 +74,8 @@ bct vector recolor icon.svg --from "#3a7" --to "#e63"      # or: recolor icon.sv
 bct vector set icon.svg --id face r=90                      # key= with no value removes an attribute
 bct vector delete icon.svg --id label
 bct vector list icon.svg                                    # ids, tags, sizes, colours
-bct vector export icon.svg -o icon.png --width 512 [--background "#fff"]   # Inkscape; .pdf also works
+bct vector export icon.svg -o icon.png --width 512 [--background "#fff"]   # Inkscape; .pdf also works, .svg gives plain SVG
+bct vector export icon.svg -o icon_final.svg --text-to-path   # plain SVG with text as outlines, for handing over
 ```
 Trace tips: raise `--despeckle` to drop dust, raise `--tolerance` for fewer nodes, `--smooth 0` for sharp corners,
 `--invert` for light shapes on dark. Always `export` and look at the PNG; don't judge an SVG from its text.

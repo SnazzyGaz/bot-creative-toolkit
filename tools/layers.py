@@ -13,7 +13,8 @@ Stack file (layers are listed bottom to top):
      {"id": "title", "type": "text",    "text": "Hello", "x": 30, "y": 30, "size": 48, "color": "#fff",
                                          "font": "DejaVu Sans", "stroke": "#000", "stroke_width": 2, "align": "left"}
    ]}
-Every layer also takes: "opacity" 0-1, "blend" (normal multiply screen overlay darken lighten difference add),
+Every layer also takes: "center" ("x", "y" or "both": centre it on the canvas, ignoring x/y on that axis),
+"radius" on image layers (rounded corners), "opacity" 0-1, "blend" (normal multiply screen overlay darken lighten difference add),
 "visible" true/false, "rotate" degrees (about the layer's own centre).
 Paths in "src" are relative to the stack file. Rendered layers are cached in <stack>.cache/, so after an edit
 only the changed layer is drawn again.
@@ -102,6 +103,10 @@ def draw_layer(l, W, H, base_dir):
         if w or h:
             w = int(w or im.width * h / im.height); h = int(h or im.height * w / im.width)
             im = im.resize((max(1, w), max(1, h)), Image.LANCZOS)
+        if l.get("radius"):                                    # rounded corners
+            m = Image.new("L", im.size, 0)
+            ImageDraw.Draw(m).rounded_rectangle([0, 0, im.width - 1, im.height - 1], radius=int(l["radius"]), fill=255)
+            im.putalpha(Image.fromarray(np.minimum(np.asarray(im.getchannel("A")), np.asarray(m))))
         return im, x, y
     if t in ("rect", "ellipse"):
         w, h = int(l.get("w", 100)), int(l.get("h", 100))
@@ -225,6 +230,9 @@ def render(stack_path, out=None, ora=None, use_cache=True):
         if not l.get("visible", True):
             stats["hidden"].append(l["id"])
         im, x, y = raster(l, W, H, base, cache, stats)
+        c = l.get("center")                                    # "x", "y" or "both": centre on the canvas
+        if c in ("x", "both"): x = (W - im.width) // 2
+        if c in ("y", "both"): y = (H - im.height) // 2
         rasters.append((l, im, x, y))
         if l.get("visible", True):
             composite(canvas, im, x, y, l.get("opacity", 1.0), l.get("blend", "normal"))

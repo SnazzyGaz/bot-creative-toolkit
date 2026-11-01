@@ -6,10 +6,11 @@ plus three small helpers that turn them into things a bot can use and check.
 - **`bct look`**: render a `.blend` file or a `bpy` scene script from several angles into one labelled
   contact sheet PNG. Optionally runs [model-qa](https://github.com/SnazzyGaz/model-qa) `check --look` on it.
 - **`bct layers`**: build images from a JSON layer stack (images, fills, gradients, shapes, text; position, opacity,
-  blend mode, visibility, rotation). Outputs PNG and OpenRaster (`.ora`). Edit one layer and only that layer is
+  blend mode, visibility, rotation, centring on the canvas, rounded image corners). Outputs PNG and OpenRaster (`.ora`). Edit one layer and only that layer is
   redrawn. Reads `.ora` back into a stack.
-- **`bct vector`**: bitmap to clean SVG with potrace (one colour or posterised multi-colour), add/edit/recolour/
-  delete SVG elements by id, export PNG/PDF with Inkscape.
+- **`bct vector`**: bitmap to clean SVG with potrace (one colour, or posterised multi-colour stacked light to dark
+  over the lightest colour as background), add/edit/recolour/delete SVG elements by id, export PNG/PDF or plain
+  SVG with Inkscape (`--text-to-path` turns text into outlines for handing over).
 - **`bct gimp`**: run GIMP 3 with no window: convert between formats (ORA to PSD, XCF to PNG...) or run your own
   GIMP Python.
 
@@ -33,12 +34,13 @@ Options: `--check` (report only), `--no-gimp`, `--portable` (skip apt).
 bct look examples/scene_example.py -o sheet.png
 bct layers render my_stack.json -o out.png --ora out.ora
 bct vector trace sketch.png -o sketch.svg --despeckle 4 && bct vector export sketch.svg -o sketch_clean.png
+bct vector export sketch.svg -o sketch_final.svg --text-to-path
 bct help
 ```
 
 Every command prints JSON on stdout (paths, sizes, what changed), so scripts and agents can read the results.
 
-For agents: read [AGENTS.md](AGENTS.md).
+For agents: read [AGENTS.md](AGENTS.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

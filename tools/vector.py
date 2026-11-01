@@ -6,7 +6,8 @@
         --despeckle   drop specks up to this many pixels (potrace -t)
         --smooth      corner smoothing 0 (sharp) to 1.33 (round) (potrace -a)
         --tolerance   curve simplifying, higher = fewer nodes (potrace -O)
-        --colors N    posterise to N colours and trace each as its own <g id="color-K"> layer
+        --colors N    posterise to N colours; lightest becomes the background, the rest are stacked
+                      light-to-dark as <g id="color-K"> layers (each covers its colour + darker ones)
   new OUT.svg --size 400x300 [--background "#fff"]
   add FILE SHAPE [key=value ...] [--id ID] [--text "Hi"]
         SHAPE: rect circle ellipse line polyline polygon path text  (attrs are plain SVG attributes)
@@ -18,7 +19,8 @@
   recolor FILE --id ID [--fill C] [--stroke C]
   delete FILE --id ID [--id ID2 ...]
   list FILE                             ids, tags and sizes of drawn elements
-  export FILE -o OUT.png [--width W | --dpi D] [--background "#fff"]    (Inkscape)
+  export FILE -o OUT.png|.pdf|.svg [--width W | --dpi D] [--background "#fff"] [--text-to-path]   (Inkscape)
+        OUT.svg writes a plain SVG; --text-to-path turns text into outlines so the font isn't needed later
 All commands print JSON. Edits change FILE in place.
 """
 import argparse, io, json, os, re, shutil, subprocess, sys, tempfile
@@ -107,13 +109,19 @@ def trace(a):
     if a.colors and a.colors > 1:
         pal_im = flat.convert("RGB").quantize(colors=a.colors, method=Image.Quantize.MEDIANCUT)
         pal = pal_im.getpalette()[:a.colors * 3]
-        counts = sorted(pal_im.getcolors(), reverse=True)        # (count, index), most common first
-        bg_index = counts[0][1]
-        for k, (cnt, idx) in enumerate(counts):
+        used = [idx for _, idx in pal_im.getcolors()]
+        lum = lambda i: 0.299 * pal[i * 3] + 0.587 * pal[i * 3 + 1] + 0.114 * pal[i * 3 + 2]
+        order = sorted(used, key=lum, reverse=True)              # lightest first, darkest painted last
+        bg_index = order[0]
+        rank = {idx: r for r, idx in enumerate(order)}
+        lut = [rank.get(v, 0) for v in range(256)]
+        for k, idx in enumerate(order):
             if idx == bg_index and not a.keep_background:
                 continue
             col = "#%02x%02x%02x" % tuple(pal[idx * 3: idx * 3 + 3])
-            mask = pal_im.point(lambda v, idx=idx: 0 if v == idx else 255, "L")
+            # stacked: each layer covers its colour AND every darker one, so layers overlap
+            # instead of leaving hairline gaps where separately traced edges do not meet
+            mask = pal_im.point(lambda v, r=k: 0 if lut[v] >= r else 255, "L")
             layers.append((f"color-{k}", col, potrace_mask(mask, a)))
         if not a.keep_background:
             out.insert(0, ET.Element(q("rect"), {"id": "background", "width": "100%", "height": "100%",
@@ -259,6 +267,10 @@ def export(a):
     if a.dpi: cmd.append(f"--export-dpi={a.dpi}")
     if a.background:
         cmd += [f"--export-background={a.background}", "--export-background-opacity=1"]
+    if a.text_to_path:
+        cmd.append("--export-text-to-path")
+    if ext == "svg":
+        cmd.append("--export-plain-svg")
     if os.path.exists(out):
         os.remove(out)
     env = dict(os.environ); env.pop("DISPLAY", None) if a.no_display else None
@@ -310,6 +322,7 @@ def main(argv=None):
         ap.add_argument("-o", "--out", required=True); ap.add_argument("--width", type=int); ap.add_argument("--dpi", type=int)
         ap.add_argument("--background"); ap.add_argument("--timeout", type=int, default=120)
         ap.add_argument("--no-display", action="store_true", help="unset DISPLAY for the export")
+        ap.add_argument("--text-to-path", action="store_true", help="turn text into outlines (no font needed later)")
         return export(ap.parse_args(rest))
     die(f"unknown command '{cmd}' (try: bct vector --help)")
 
